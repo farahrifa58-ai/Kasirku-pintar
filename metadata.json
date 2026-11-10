@@ -1,0 +1,6 @@
+{
+  "name": "KasirKu Pintar",
+  "description": "Aplikasi Kasir POS modern dengan laporan real-time, sinkronisasi pantau 2-3 smartphone, cetak struk Bluetooth, grafik tren penjualan, dan kustomisasi profil toko.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
