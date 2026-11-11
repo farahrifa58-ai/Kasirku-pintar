@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +36,10 @@ import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.NavyVariant
 import com.example.util.FormatUtils
 
+import androidx.credentials.CredentialManager
+import com.example.ui.auth.GoogleAuthHelper
+import kotlinx.coroutines.launch
+
 @Composable
 fun MultiDeviceScreen(
     viewModel: KasirViewModel,
@@ -43,9 +48,15 @@ fun MultiDeviceScreen(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
+
     val storeProfile by viewModel.storeProfile.collectAsState()
     val deviceMode by viewModel.deviceMode.collectAsState()
     val syncMethod by viewModel.syncMethod.collectAsState()
+
+    val currentUser by viewModel.currentUser.collectAsState()
+    val firestoreSyncStatus by viewModel.firestoreSyncStatus.collectAsState()
 
     val isHostRunning by viewModel.isHostRunning.collectAsState()
     val hostIpAddress by viewModel.hostIpAddress.collectAsState()
@@ -58,6 +69,9 @@ fun MultiDeviceScreen(
 
     var inputCloudCode by remember(remoteTargetCloudCode) { mutableStateOf(remoteTargetCloudCode) }
     var inputTargetIp by remember(remoteTargetIp) { mutableStateOf(remoteTargetIp) }
+    var cashierJoinInput by remember { mutableStateOf("") }
+    var isAuthLoading by remember { mutableStateOf(false) }
+    var isManualSyncing by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -80,6 +94,249 @@ fun MultiDeviceScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // ==================== FIREBASE CLOUD FIRESTORE INTEGRATION CARD ====================
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (currentUser != null) NavyPrimary.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (currentUser != null) AccentEmerald.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDone,
+                                    contentDescription = null,
+                                    tint = if (currentUser != null) AccentEmerald else NavyPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Firebase Cloud Firestore",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NavyPrimary
+                                    )
+                                    Text(
+                                        text = "Database Bersama Multi-HP Real-time",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (currentUser != null) AccentEmerald.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.15f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(if (currentUser != null) AccentEmerald else Color.Gray)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = if (currentUser != null) "Cloud Aktif" else "Offline",
+                                        color = if (currentUser != null) AccentEmerald else Color.Gray,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (currentUser == null) {
+                            Text(
+                                text = "Hubungkan ke Cloud Firestore agar data transaksi, stok, dan laporan tersinkronisasi otomatis antar 2-3 smartphone tanpa batas jarak.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = {
+                                    isAuthLoading = true
+                                    GoogleAuthHelper.signInWithGoogle(
+                                        context = context,
+                                        credentialManager = credentialManager,
+                                        onAuthSuccess = {
+                                            isAuthLoading = false
+                                            Toast.makeText(context, "Berhasil masuk ke Google & Cloud Firestore!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onAuthError = { err ->
+                                            isAuthLoading = false
+                                            Toast.makeText(context, "Gagal login: $err", Toast.LENGTH_LONG).show()
+                                        },
+                                        scope = coroutineScope,
+                                        onAuthCancelled = {
+                                            isAuthLoading = false
+                                        }
+                                    )
+                                },
+                                enabled = !isAuthLoading,
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .testTag("firestore_google_login_button")
+                            ) {
+                                if (isAuthLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Menghubungkan...")
+                                } else {
+                                    Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Masuk dengan Akun Google", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Akun Google Aktif:",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = currentUser?.email ?: "-",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.signOutFromGoogle()
+                                            Toast.makeText(context, "Keluar dari Akun Google", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Text("Keluar", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isManualSyncing = true
+                                        viewModel.triggerManualFirestoreSync { success, msg ->
+                                            isManualSyncing = false
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    enabled = !isManualSyncing,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                        .testTag("firestore_manual_sync_button")
+                                ) {
+                                    if (isManualSyncing) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Sinkronkan & Migrasi ke Cloud", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            if (deviceMode == DeviceMode.KASIR_HOST) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = "Hubungkan HP Kasir Lain ke Toko Ini:",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "Gunakan Kode Toko '${storeProfile.cloudSyncCode}' di HP kasir 2 atau 3 agar terhubung ke katalog produk & stok yang sama.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedTextField(
+                                                value = cashierJoinInput,
+                                                onValueChange = { cashierJoinInput = it.uppercase() },
+                                                label = { Text("Gabung Toko Kasir") },
+                                                placeholder = { Text("Contoh: KASIR-7890") },
+                                                singleLine = true,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    if (cashierJoinInput.isNotBlank()) {
+                                                        viewModel.connectToStoreAsCashier(cashierJoinInput) { ok, msg ->
+                                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
+                                            ) {
+                                                Text("Gabung")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Mode Selector: HP Kasir vs HP Pemilik
             item {
                 Card(

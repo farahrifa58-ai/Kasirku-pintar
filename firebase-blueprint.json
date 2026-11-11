@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "Store": {
+      "title": "Store",
+      "description": "Store profile and metadata owned by a registered merchant or owner.",
+      "type": "object",
+      "properties": {
+        "storeId": { "type": "string", "description": "Unique identifier for the store" },
+        "ownerUid": { "type": "string", "description": "Firebase Auth UID of the store owner" },
+        "ownerEmail": { "type": "string", "description": "Owner Google account email" },
+        "cashierUids": { "type": "array", "description": "List of authorized cashier Firebase Auth UIDs" },
+        "storeName": { "type": "string", "description": "Business or store display name" },
+        "ownerName": { "type": "string", "description": "Name of store owner / manager" },
+        "address": { "type": "string", "description": "Physical store address" },
+        "whatsapp": { "type": "string", "description": "Customer service / WhatsApp number" },
+        "footerMessage": { "type": "string", "description": "Receipt footer greeting or notes" },
+        "taxEnabled": { "type": "boolean", "description": "Whether PPN tax calculation is enabled" },
+        "defaultTaxPercent": { "type": "number", "description": "Tax percentage (e.g., 11.0)" },
+        "cloudSyncCode": { "type": "string", "description": "Unique shareable store code (e.g., KASIR-7890)" },
+        "paperSize": { "type": "string", "description": "Thermal printer paper size (58mm or 80mm)" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp via FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp via FieldValue.serverTimestamp()" }
+      },
+      "required": ["storeId", "ownerUid", "storeName", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store catalog product item with inventory stock and pricing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique product ID" },
+        "storeId": { "type": "string", "description": "ID of the parent store" },
+        "name": { "type": "string", "description": "Product display name" },
+        "sku": { "type": "string", "description": "Stock keeping unit or barcode" },
+        "category": { "type": "string", "description": "Product category" },
+        "unit": { "type": "string", "description": "Measurement unit (pcs, kg, gram, liter, etc.)" },
+        "buyPrice": { "type": "number", "description": "Wholesale / purchase base cost" },
+        "sellPrice": { "type": "number", "description": "Customer retail selling price" },
+        "stock": { "type": "number", "description": "Current on-hand inventory count" },
+        "imageUri": { "type": "string", "description": "Optional image thumbnail URL or URI" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last inventory or price update timestamp" }
+      },
+      "required": ["id", "storeId", "name", "category", "unit", "buyPrice", "sellPrice", "stock", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Completed point-of-sale checkout order receipt record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique deterministic transaction ID (TRX-...)" },
+        "storeId": { "type": "string", "description": "ID of the store where the sale occurred" },
+        "timestamp": { "type": "number", "description": "Epoch timestamp in milliseconds" },
+        "itemsSummary": { "type": "string", "description": "Summary string of cart items" },
+        "totalItems": { "type": "integer", "description": "Total quantity of items sold" },
+        "subtotal": { "type": "number", "description": "Gross subtotal before discounts and tax" },
+        "discount": { "type": "number", "description": "Discount applied" },
+        "tax": { "type": "number", "description": "PPN tax amount collected" },
+        "total": { "type": "number", "description": "Final billed total amount" },
+        "totalProfit": { "type": "number", "description": "Net gross margin profit earned" },
+        "paymentMethod": { "type": "string", "description": "Payment method used (Tunai, QRIS, Transfer, etc.)" },
+        "cashPaid": { "type": "number", "description": "Cash tendered or digital amount paid" },
+        "change": { "type": "number", "description": "Change returned to customer" },
+        "customerName": { "type": "string", "description": "Customer reference name" },
+        "cashierName": { "type": "string", "description": "Name of the serving cashier" },
+        "cashierUid": { "type": "string", "description": "Firebase Auth UID of the cashier" },
+        "notes": { "type": "string", "description": "Optional checkout notes" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp" }
+      },
+      "required": ["id", "storeId", "timestamp", "itemsSummary", "total", "paymentMethod", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile linking a signed-in Google user to their active store.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "activeStoreId": { "type": "string", "description": "Active linked store ID" },
+        "role": { "type": "string", "description": "User role (owner or cashier)" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["userId", "activeStoreId", "role"]
+    }
+  },
+  "firestore": {
+    "/stores/{storeId}": {
+      "schema": "Store",
+      "description": "Collection of stores registered in KasirKu Pintar."
+    },
+    "/stores/{storeId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Product catalog and stock inventory items for a specific store."
+    },
+    "/stores/{storeId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Historical sales orders and receipts recorded in a store."
+    },
+    "/users/{userId}/profile/main": {
+      "schema": "UserProfile",
+      "description": "User reference linking user to active store role."
+    }
+  }
+}

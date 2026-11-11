@@ -14,11 +14,16 @@ import com.example.data.network.CloudSyncPacket
 import com.example.data.network.MultiDeviceClient
 import com.example.data.network.MultiDeviceServer
 import com.example.data.network.RemoteServerStatus
+import com.example.data.firestore.FirestorePosRepository
 import com.example.printer.BluetoothReceiptPrinter
 import com.example.printer.PrintResult
 import com.example.ui.components.ChartPoint
 import com.example.util.BackupManager
 import com.example.util.FormatUtils
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -149,10 +154,37 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
     private var monitorJob: Job? = null
     private var cloudHostJob: Job? = null
 
+    // Firebase Cloud Firestore & Auth
+    val firestoreRepo = FirestorePosRepository(application)
+    val auth: FirebaseAuth = Firebase.auth
+
+    private val _currentUser = MutableStateFlow<FirebaseUser?>(auth.currentUser)
+    val currentUser: StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
+
+    private val _firestoreSyncStatus = MutableStateFlow(
+        if (auth.currentUser != null) "🟢 Terhubung ke Cloud Firestore (${auth.currentUser?.email})"
+        else "Mode Offline / Belum Masuk Google"
+    )
+    val firestoreSyncStatus: StateFlow<String> = _firestoreSyncStatus.asStateFlow()
+
+    private var firestoreProductsJob: Job? = null
+    private var firestoreTrxJob: Job? = null
+
     init {
         clearSampleProductsIfAny()
         setupMultiDeviceHost()
         startCloudHostSync()
+
+        auth.addAuthStateListener { fbAuth ->
+            val user = fbAuth.currentUser
+            _currentUser.value = user
+            if (user != null) {
+                startFirestoreSync(user)
+            } else {
+                stopFirestoreSync()
+                _firestoreSyncStatus.value = "Mode Offline / Belum Masuk Google"
+            }
+        }
     }
 
     private fun loadStoreProfile(): StoreProfile {
@@ -331,10 +363,19 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
                 stock = stock,
                 imageUri = imageUri
             )
-            if (id == 0L) {
+            val assignedId = if (id == 0L) {
                 productDao.insertProduct(product)
             } else {
                 productDao.updateProduct(product)
+                id
+            }
+
+            if (firestoreRepo.isUserSignedIn()) {
+                try {
+                    firestoreRepo.saveProduct(_storeProfile.value.cloudSyncCode, product.copy(id = assignedId))
+                } catch (e: Exception) {
+                    android.util.Log.e("KasirVM", "Firestore save product error: ${e.message}")
+                }
             }
         }
     }
@@ -342,6 +383,13 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteProduct(product: Product) {
         viewModelScope.launch {
             productDao.deleteProduct(product)
+            if (firestoreRepo.isUserSignedIn()) {
+                try {
+                    firestoreRepo.deleteProduct(_storeProfile.value.cloudSyncCode, product.id)
+                } catch (e: Exception) {
+                    android.util.Log.e("KasirVM", "Firestore delete product error: ${e.message}")
+                }
+            }
         }
     }
 
@@ -404,6 +452,19 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
             // Auto-trigger print if printer is paired
             if (!_storeProfile.value.bluetoothPrinterAddress.isNullOrBlank()) {
                 printActiveReceipt()
+            }
+
+            // Sync to Firestore atomically (records transaction and decrements stock in cloud)
+            if (firestoreRepo.isUserSignedIn()) {
+                try {
+                    firestoreRepo.recordTransactionAndDeductStock(
+                        storeId = _storeProfile.value.cloudSyncCode,
+                        transaction = transaction,
+                        cartItems = items
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("KasirVM", "Firestore record transaction error: ${e.message}")
+                }
             }
 
             // Sync to cloud relay immediately
@@ -723,10 +784,132 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ==================== FIRESTORE SYNC & MULTI-DEVICE METHODS ====================
+
+    fun startFirestoreSync(user: FirebaseUser) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _firestoreSyncStatus.value = "Menghubungkan ke Cloud Firestore..."
+                val storeCode = firestoreRepo.getOrCreateStore(_storeProfile.value)
+
+                // Safe migration of local Room database to Cloud Firestore
+                val localProducts = productDao.getAllProductsSync()
+                val localTrx = transactionDao.getAllTransactionsSync()
+                val (migratedProds, migratedTrx) = firestoreRepo.migrateDataFromLocalRoom(
+                    storeId = storeCode,
+                    localProducts = localProducts,
+                    localTransactions = localTrx
+                )
+                if (migratedProds > 0 || migratedTrx > 0) {
+                    android.util.Log.d("KasirVM", "Migrated to Firestore: $migratedProds produk, $migratedTrx transaksi")
+                }
+
+                _firestoreSyncStatus.value = "🟢 Terhubung ke Firestore (${user.email})"
+
+                // Real-time Products Sync from Firestore
+                firestoreProductsJob?.cancel()
+                firestoreProductsJob = viewModelScope.launch(Dispatchers.IO) {
+                    firestoreRepo.observeProducts(storeCode).collect { cloudProducts ->
+                        if (cloudProducts.isNotEmpty()) {
+                            productDao.insertProducts(cloudProducts)
+                        }
+                    }
+                }
+
+                // Real-time Transactions Sync from Firestore (instantly updates owner's dashboard)
+                firestoreTrxJob?.cancel()
+                firestoreTrxJob = viewModelScope.launch(Dispatchers.IO) {
+                    var lastNotifiedCount = 0
+                    firestoreRepo.observeTransactions(storeCode).collect { cloudTrx ->
+                        if (cloudTrx.isNotEmpty()) {
+                            transactionDao.insertTransactions(cloudTrx)
+                            if (lastNotifiedCount > 0 && cloudTrx.size > lastNotifiedCount) {
+                                val latest = cloudTrx.firstOrNull()
+                                if (latest != null) {
+                                    addNotification(
+                                        title = "⚡ Penjualan Baru Masuk (Firestore)!",
+                                        message = "${FormatUtils.formatRupiah(latest.total)} via ${latest.paymentMethod} oleh ${latest.cashierName}"
+                                    )
+                                }
+                            }
+                            lastNotifiedCount = cloudTrx.size
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _firestoreSyncStatus.value = "Koneksi Firestore: ${e.localizedMessage}"
+                android.util.Log.e("KasirVM", "Firestore sync start error: ${e.message}")
+            }
+        }
+    }
+
+    fun stopFirestoreSync() {
+        firestoreProductsJob?.cancel()
+        firestoreProductsJob = null
+        firestoreTrxJob?.cancel()
+        firestoreTrxJob = null
+    }
+
+    fun connectToStoreAsCashier(storeCode: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            if (!firestoreRepo.isUserSignedIn()) {
+                onResult(false, "Silakan login dengan Akun Google terlebih dahulu")
+                return@launch
+            }
+            val cleanCode = storeCode.uppercase().trim()
+            val success = firestoreRepo.joinStoreAsCashier(cleanCode)
+            if (success) {
+                _storeProfile.value = _storeProfile.value.copy(cloudSyncCode = cleanCode)
+                prefs.edit().putString("store_cloud_code", cleanCode).apply()
+                val user = auth.currentUser
+                if (user != null) startFirestoreSync(user)
+                onResult(true, "Berhasil terhubung ke toko $cleanCode sebagai Kasir!")
+            } else {
+                onResult(false, "Toko dengan kode $cleanCode tidak ditemukan di database Firestore")
+            }
+        }
+    }
+
+    fun triggerManualFirestoreSync(onComplete: (Boolean, String) -> Unit) {
+        val user = auth.currentUser
+        if (user == null) {
+            onComplete(false, "Silakan login dengan Google terlebih dahulu")
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val storeCode = firestoreRepo.getOrCreateStore(_storeProfile.value)
+                val localProducts = productDao.getAllProductsSync()
+                val localTrx = transactionDao.getAllTransactionsSync()
+                val (migratedProds, migratedTrx) = firestoreRepo.migrateDataFromLocalRoom(
+                    storeId = storeCode,
+                    localProducts = localProducts,
+                    localTransactions = localTrx
+                )
+                startFirestoreSync(user)
+                withContext(Dispatchers.Main) {
+                    onComplete(true, "Sinkronisasi berhasil! $migratedProds produk & $migratedTrx transaksi tersinkron ke Cloud Firestore.")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onComplete(false, "Gagal sinkronisasi: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    fun signOutFromGoogle() {
+        auth.signOut()
+        stopFirestoreSync()
+        _currentUser.value = null
+        _firestoreSyncStatus.value = "Mode Offline / Belum Masuk Google"
+    }
+
     override fun onCleared() {
         super.onCleared()
         multiDeviceServer.stopServer()
         stopMonitorClient()
+        stopFirestoreSync()
         cloudHostJob?.cancel()
     }
 }

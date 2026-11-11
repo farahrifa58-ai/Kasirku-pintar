@@ -41,6 +41,8 @@ import com.example.ui.KasirViewModel
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.NavyHeaderBg
 import com.example.ui.theme.NavyPrimary
+import androidx.credentials.CredentialManager
+import com.example.ui.auth.GoogleAuthHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,9 +52,15 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
+
     val storeProfile by viewModel.storeProfile.collectAsState()
     val isDarkTheme by viewModel.isDarkTheme.collectAsState()
     val appLanguage by viewModel.appLanguage.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val firestoreSyncStatus by viewModel.firestoreSyncStatus.collectAsState()
+    var isAuthLoading by remember { mutableStateOf(false) }
 
     var storeName by remember(storeProfile) { mutableStateOf(storeProfile.storeName) }
     var ownerName by remember(storeProfile) { mutableStateOf(storeProfile.ownerName) }
@@ -599,6 +607,131 @@ fun SettingsScreen(
                                 onClick = { viewModel.setAppLanguage(AppLanguage.ENGLISH) },
                                 modifier = Modifier.weight(1f)
                             )
+                        }
+                    }
+                }
+            }
+
+            // ================= 4b. AKUN GOOGLE & CLOUD FIRESTORE =================
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CloudDone, contentDescription = null, tint = NavyPrimary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Akun Google & Cloud Firestore",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (currentUser != null) AccentEmerald.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = if (currentUser != null) "Terhubung" else "Offline",
+                                    color = if (currentUser != null) AccentEmerald else Color.Gray,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Sinkronisasi otomatis basis data transaksi, produk & stok ke Cloud Firestore",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (currentUser != null) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Email Google:",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = currentUser?.email ?: "-",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.signOutFromGoogle()
+                                            Toast.makeText(context, "Keluar dari Akun Google", Toast.LENGTH_SHORT).show()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Keluar", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    isAuthLoading = true
+                                    GoogleAuthHelper.signInWithGoogle(
+                                        context = context,
+                                        credentialManager = credentialManager,
+                                        onAuthSuccess = {
+                                            isAuthLoading = false
+                                            Toast.makeText(context, "Berhasil masuk ke Google & Cloud Firestore!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onAuthError = { err ->
+                                            isAuthLoading = false
+                                            Toast.makeText(context, "Gagal login: $err", Toast.LENGTH_LONG).show()
+                                        },
+                                        scope = coroutineScope,
+                                        onAuthCancelled = {
+                                            isAuthLoading = false
+                                        }
+                                    )
+                                },
+                                enabled = !isAuthLoading,
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                            ) {
+                                if (isAuthLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Menghubungkan...")
+                                } else {
+                                    Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Masuk dengan Akun Google", fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }

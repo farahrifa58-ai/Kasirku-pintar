@@ -37,6 +37,11 @@ class MainActivity : ComponentActivity() {
                 contract = ActivityResultContracts.RequestMultiplePermissions()
             ) { /* Handled gracefully in UI */ }
 
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+            val credentialManager = androidx.compose.runtime.remember {
+                androidx.credentials.CredentialManager.create(this@MainActivity)
+            }
+
             LaunchedEffect(Unit) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val permissionsNeeded = mutableListOf<String>()
@@ -50,6 +55,15 @@ class MainActivity : ComponentActivity() {
                         bluetoothPermissionLauncher.launch(permissionsNeeded.toTypedArray())
                     }
                 }
+
+                // Attempt silent auto-sign-in for returning users
+                com.example.ui.auth.GoogleAuthHelper.attemptAutoSignIn(
+                    context = this@MainActivity,
+                    credentialManager = credentialManager,
+                    onAuthSuccess = { /* Automatically starts Firestore sync via AuthStateListener */ },
+                    onUnauthenticated = { /* Handled gracefully with offline state */ },
+                    scope = coroutineScope
+                )
             }
 
             KasirProTheme(darkTheme = isDarkTheme) {
