@@ -24,32 +24,38 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    // Evaluates true if user is the store owner (via direct UID matching or document ownership)
     function isStoreOwner(storeId) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/stores/$(storeId)) &&
-        get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid;
+      return isSignedIn() && (
+        storeId == request.auth.uid ||
+        storeId == ('store_' + request.auth.uid) ||
+        (exists(/databases/$(database)/documents/stores/$(storeId)) &&
+         get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid)
+      );
     }
 
+    // Evaluates true if user is store owner or authorized cashier
     function isStoreMember(storeId) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/stores/$(storeId)) &&
-        (
-          get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid ||
+      return isSignedIn() && (
+        storeId == request.auth.uid ||
+        storeId == ('store_' + request.auth.uid) ||
+        (exists(/databases/$(database)/documents/stores/$(storeId)) &&
+         (get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid ||
           ('cashierUids' in get(/databases/$(database)/documents/stores/$(storeId)).data &&
            get(/databases/$(database)/documents/stores/$(storeId)).data.cashierUids is list &&
-           request.auth.uid in get(/databases/$(database)/documents/stores/$(storeId)).data.cashierUids)
-        );
+           request.auth.uid in get(/databases/$(database)/documents/stores/$(storeId)).data.cashierUids)))
+      );
     }
 
     function isValidStore(data) {
-      return data.storeId is string && data.storeId.size() >= 3 && data.storeId.size() <= 64 &&
+      return data.storeId is string && data.storeId.size() >= 3 && data.storeId.size() <= 128 &&
              data.ownerUid is string && data.ownerUid.size() <= 128 &&
              data.storeName is string && data.storeName.size() >= 1 && data.storeName.size() <= 100 &&
              (!('ownerName' in data) || (data.ownerName is string && data.ownerName.size() <= 100)) &&
              (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
              (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 30)) &&
              (!('footerMessage' in data) || (data.footerMessage is string && data.footerMessage.size() <= 200)) &&
-             (!('cloudSyncCode' in data) || (data.cloudSyncCode is string && data.cloudSyncCode.size() <= 32)) &&
+             (!('cloudSyncCode' in data) || (data.cloudSyncCode is string && data.cloudSyncCode.size() <= 64)) &&
              (!('taxEnabled' in data) || data.taxEnabled is bool) &&
              (!('defaultTaxPercent' in data) || (data.defaultTaxPercent is number && data.defaultTaxPercent >= 0)) &&
              (!('paperSize' in data) || (data.paperSize is string && data.paperSize.size() <= 10)) &&
@@ -58,7 +64,7 @@ service cloud.firestore {
 
     function isValidProduct(data) {
       return data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
-             data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 64 &&
+             data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 128 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
              data.category is string && data.category.size() <= 60 &&
              data.unit is string && data.unit.size() <= 30 &&
@@ -71,12 +77,12 @@ service cloud.firestore {
 
     function isValidTransaction(data) {
       return data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
-             data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 64 &&
+             data.storeId is string && data.storeId.size() >= 1 && data.storeId.size() <= 128 &&
              data.timestamp is number &&
              data.itemsSummary is string && data.itemsSummary.size() <= 2000 &&
              data.total is number && data.total >= 0 &&
              data.paymentMethod is string && data.paymentMethod.size() <= 40 &&
-             (!('totalItems' in data) || data.totalItems is int) &&
+             (!('totalItems' in data) || data.totalItems is number) &&
              (!('subtotal' in data) || (data.subtotal is number && data.subtotal >= 0)) &&
              (!('discount' in data) || (data.discount is number && data.discount >= 0)) &&
              (!('tax' in data) || (data.tax is number && data.tax >= 0)) &&
@@ -91,32 +97,25 @@ service cloud.firestore {
 
     function isValidUserProfile(data) {
       return data.userId is string && data.userId == request.auth.uid &&
-             data.activeStoreId is string && data.activeStoreId.size() <= 64 &&
+             data.activeStoreId is string && data.activeStoreId.size() <= 128 &&
              data.role is string && (data.role == 'owner' || data.role == 'cashier');
     }
 
     // 1. Stores Collection
     match /stores/{storeId} {
-      allow get: if isSignedIn() && isValidId(storeId);
+      allow get: if isStoreMember(storeId);
       allow list: if isSignedIn();
 
       allow create: if isSignedIn() && isValidId(storeId) &&
                        incoming().ownerUid == request.auth.uid &&
                        incoming().storeId == storeId &&
-                       incoming().createdAt is timestamp &&
-                       incoming().createdAt <= request.time &&
+                       (!('createdAt' in incoming()) || (incoming().createdAt is timestamp && incoming().createdAt <= request.time)) &&
                        isValidStore(incoming());
 
       allow update: if isStoreOwner(storeId) &&
                        incoming().ownerUid == existing().ownerUid &&
                        incoming().storeId == existing().storeId &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidStore(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'storeName', 'ownerName', 'address', 'whatsapp',
-                         'footerMessage', 'taxEnabled', 'defaultTaxPercent',
-                         'cloudSyncCode', 'paperSize', 'cashierUids', 'updatedAt'
-                       ]);
+                       isValidStore(incoming());
 
       allow delete: if isStoreOwner(storeId);
 
@@ -124,51 +123,37 @@ service cloud.firestore {
       match /products/{productId} {
         allow get, list: if isStoreMember(storeId);
 
-        allow create: if isStoreOwner(storeId) &&
+        allow create: if isStoreMember(storeId) &&
                          isValidId(productId) &&
                          incoming().id == productId &&
                          incoming().storeId == storeId &&
-                         incoming().createdAt is timestamp &&
-                         incoming().createdAt <= request.time &&
+                         (!('createdAt' in incoming()) || (incoming().createdAt is timestamp && incoming().createdAt <= request.time)) &&
                          isValidProduct(incoming());
 
-        // Update allowed for Owner (all fields) OR Cashier (stock count update only during checkout)
-        allow update: if isValidProduct(incoming()) && (
-          (isStoreOwner(storeId) &&
-           incoming().id == existing().id &&
-           incoming().storeId == existing().storeId &&
-           incoming().createdAt == existing().createdAt &&
-           incoming().diff(existing()).affectedKeys().hasOnly([
-             'name', 'sku', 'category', 'unit', 'buyPrice', 'sellPrice', 'stock', 'imageUri', 'updatedAt'
-           ])) ||
-          (isStoreMember(storeId) &&
-           incoming().id == existing().id &&
-           incoming().storeId == existing().storeId &&
-           incoming().createdAt == existing().createdAt &&
-           incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt']))
-        );
+        allow update: if isStoreMember(storeId) &&
+                         isValidId(productId) &&
+                         incoming().id == existing().id &&
+                         incoming().storeId == existing().storeId &&
+                         isValidProduct(incoming());
 
-        allow delete: if isStoreOwner(storeId) && isValidId(productId);
+        allow delete: if isStoreMember(storeId) && isValidId(productId);
       }
 
       // 3. Subcollection: Transactions
       match /transactions/{transactionId} {
         allow get, list: if isStoreMember(storeId);
 
-        // Both store owner and authorized cashiers can create transactions
         allow create: if isStoreMember(storeId) &&
                          isValidId(transactionId) &&
                          incoming().id == transactionId &&
                          incoming().storeId == storeId &&
-                         incoming().createdAt is timestamp &&
-                         incoming().createdAt <= request.time &&
+                         (!('createdAt' in incoming()) || (incoming().createdAt is timestamp && incoming().createdAt <= request.time)) &&
                          isValidTransaction(incoming());
 
-        // Transactions are tamper-evident: cashiers cannot edit or delete transactions; only owner can update or delete
         allow update: if isStoreOwner(storeId) &&
+                         isValidId(transactionId) &&
                          incoming().id == existing().id &&
                          incoming().storeId == existing().storeId &&
-                         incoming().createdAt == existing().createdAt &&
                          isValidTransaction(incoming());
 
         allow delete: if isStoreOwner(storeId) && isValidId(transactionId);

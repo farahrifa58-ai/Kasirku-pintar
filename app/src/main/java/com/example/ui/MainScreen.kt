@@ -34,7 +34,10 @@ enum class NavTab(
 }
 
 @Composable
-fun MainScreen(viewModel: KasirViewModel) {
+fun MainScreen(
+    viewModel: KasirViewModel,
+    onRequireLogin: () -> Unit = {}
+) {
     var currentScreen by remember { mutableStateOf(AppScreen.MAIN_NAV) }
     var selectedTab by remember { mutableStateOf(NavTab.DASHBOARD) }
 
@@ -58,7 +61,8 @@ fun MainScreen(viewModel: KasirViewModel) {
         AppScreen.SETTINGS -> {
             SettingsScreen(
                 viewModel = viewModel,
-                onBack = { currentScreen = AppScreen.MAIN_NAV }
+                onBack = { currentScreen = AppScreen.MAIN_NAV },
+                onRequireLogin = onRequireLogin
             )
         }
         AppScreen.MAIN_NAV -> {
@@ -129,7 +133,8 @@ fun MainScreen(viewModel: KasirViewModel) {
                         )
                         NavTab.MULTI_DEVICE -> MultiDeviceScreen(
                             viewModel = viewModel,
-                            onOpenSettings = { currentScreen = AppScreen.SETTINGS }
+                            onOpenSettings = { currentScreen = AppScreen.SETTINGS },
+                            onRequireLogin = onRequireLogin
                         )
                     }
                 }

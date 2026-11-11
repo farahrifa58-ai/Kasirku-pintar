@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.example.ui.FirestoreSyncState
 import com.example.data.model.Product
 import com.example.ui.KasirViewModel
 import com.example.ui.components.KasirTopHeader
@@ -48,8 +49,6 @@ fun ProductScreen(
 ) {
     val storeProfile by viewModel.storeProfile.collectAsState()
     val allProducts by viewModel.allProducts.collectAsState()
-    val isHostRunning by viewModel.isHostRunning.collectAsState()
-    val connectedClientsCount by viewModel.connectedClientsCount.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -68,12 +67,12 @@ fun ProductScreen(
 
     Scaffold(
         topBar = {
+            val syncState by viewModel.firestoreSyncState.collectAsState()
             KasirTopHeader(
                 storeProfile = storeProfile,
                 title = "Kelola Produk",
                 subtitle = "${allProducts.size} Produk Katalog Terdaftar",
-                connectedDevicesCount = connectedClientsCount + 1,
-                isHostServerRunning = isHostRunning,
+                isHostServerRunning = syncState is FirestoreSyncState.Connected,
                 onSettingsClick = onOpenSettings
             )
         },

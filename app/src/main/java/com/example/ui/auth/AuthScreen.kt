@@ -30,6 +30,7 @@ import com.example.ui.theme.NavyPrimary
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
+    onSkipOffline: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -175,10 +176,26 @@ fun AuthScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onSkipOffline,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+            ) {
+                Text(
+                    text = "Gunakan Mode Offline (Lokal)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "Masuk menggunakan Akun Google Anda untuk menghubungkan data antar HP pemilik dan kasir.",
+                text = "Masuk menggunakan Akun Google untuk sinkronisasi otomatis antar 2-3 HP kasir & pemilik via Firebase Cloud Firestore.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center

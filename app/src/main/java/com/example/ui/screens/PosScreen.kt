@@ -35,6 +35,7 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.data.model.CartItem
 import com.example.data.model.Product
+import com.example.ui.FirestoreSyncState
 import com.example.ui.KasirViewModel
 import com.example.ui.components.KasirTopHeader
 import com.example.ui.theme.AccentAmber
@@ -55,8 +56,6 @@ fun PosScreen(
     val storeProfile by viewModel.storeProfile.collectAsState()
     val allProducts by viewModel.allProducts.collectAsState()
     val cart by viewModel.cart.collectAsState()
-    val isHostRunning by viewModel.isHostRunning.collectAsState()
-    val connectedClientsCount by viewModel.connectedClientsCount.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Semua") }
@@ -82,12 +81,12 @@ fun PosScreen(
 
     Scaffold(
         topBar = {
+            val syncState by viewModel.firestoreSyncState.collectAsState()
             KasirTopHeader(
                 storeProfile = storeProfile,
                 title = "Kasir Penjualan",
                 subtitle = "Pilih item katalog untuk transaksi",
-                connectedDevicesCount = connectedClientsCount + 1,
-                isHostServerRunning = isHostRunning,
+                isHostServerRunning = syncState is FirestoreSyncState.Connected,
                 onSettingsClick = onOpenSettings
             )
         },

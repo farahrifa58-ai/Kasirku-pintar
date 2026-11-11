@@ -151,7 +151,7 @@ fun KasirTopHeader(
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = if (connectedDevicesCount > 1) "$connectedDevicesCount HP" else "Online",
+                                text = if (isHostServerRunning) "Cloud Aktif" else "Lokal",
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium

@@ -42,13 +42,21 @@ enum class TimePeriodFilter {
 }
 
 enum class DeviceMode {
-    KASIR_HOST,
-    MONITOR_CLIENT
+    MODE_KASIR,
+    MODE_PEMANTAU
 }
 
 enum class SyncConnectionMethod {
     CLOUD_INTERNET,
     LOCAL_WIFI
+}
+
+sealed class FirestoreSyncState {
+    object Offline : FirestoreSyncState()
+    object Connecting : FirestoreSyncState()
+    data class Connected(val email: String, val storeId: String) : FirestoreSyncState()
+    data class PermissionDenied(val message: String) : FirestoreSyncState()
+    data class Error(val message: String) : FirestoreSyncState()
 }
 
 data class AppNotification(
@@ -116,8 +124,13 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPrinting = MutableStateFlow(false)
     val isPrinting: StateFlow<Boolean> = _isPrinting.asStateFlow()
 
-    // Multi-Device Mode & Live Sync
-    private val _deviceMode = MutableStateFlow(DeviceMode.KASIR_HOST)
+    // Multi-Device Mode & Live Sync (Persisted per device)
+    private val _deviceMode = MutableStateFlow(
+        if (prefs.getString("device_mode", "MODE_KASIR") == "MODE_PEMANTAU")
+            DeviceMode.MODE_PEMANTAU
+        else
+            DeviceMode.MODE_KASIR
+    )
     val deviceMode: StateFlow<DeviceMode> = _deviceMode.asStateFlow()
 
     private val _syncMethod = MutableStateFlow(SyncConnectionMethod.CLOUD_INTERNET)
@@ -161,8 +174,13 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentUser = MutableStateFlow<FirebaseUser?>(auth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
 
+    private val _firestoreSyncState = MutableStateFlow<FirestoreSyncState>(
+        if (auth.currentUser != null) FirestoreSyncState.Connecting else FirestoreSyncState.Offline
+    )
+    val firestoreSyncState: StateFlow<FirestoreSyncState> = _firestoreSyncState.asStateFlow()
+
     private val _firestoreSyncStatus = MutableStateFlow(
-        if (auth.currentUser != null) "🟢 Terhubung ke Cloud Firestore (${auth.currentUser?.email})"
+        if (auth.currentUser != null) "Memverifikasi izin Firestore..."
         else "Mode Offline / Belum Masuk Google"
     )
     val firestoreSyncStatus: StateFlow<String> = _firestoreSyncStatus.asStateFlow()
@@ -173,7 +191,6 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
     init {
         clearSampleProductsIfAny()
         setupMultiDeviceHost()
-        startCloudHostSync()
 
         auth.addAuthStateListener { fbAuth ->
             val user = fbAuth.currentUser
@@ -182,6 +199,7 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
                 startFirestoreSync(user)
             } else {
                 stopFirestoreSync()
+                _firestoreSyncState.value = FirestoreSyncState.Offline
                 _firestoreSyncStatus.value = "Mode Offline / Belum Masuk Google"
             }
         }
@@ -240,8 +258,16 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
             .putString("store_cloud_code", cloudSyncCode)
             .apply()
 
-        // Push new profile to cloud
-        pushCurrentDataToCloud()
+        // Push new profile to Firebase Cloud Firestore
+        if (firestoreRepo.isUserSignedIn()) {
+            viewModelScope.launch {
+                try {
+                    firestoreRepo.getOrCreateStore(updated)
+                } catch (e: Exception) {
+                    android.util.Log.e("KasirVM", "Firestore store profile sync error: ${e.message}")
+                }
+            }
+        }
     }
 
     fun updateStoreLogo(uri: Uri?) {
@@ -372,7 +398,8 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
 
             if (firestoreRepo.isUserSignedIn()) {
                 try {
-                    firestoreRepo.saveProduct(_storeProfile.value.cloudSyncCode, product.copy(id = assignedId))
+                    val activeStoreId = firestoreRepo.getCurrentStoreId() ?: "store_${auth.currentUser?.uid}"
+                    firestoreRepo.saveProduct(activeStoreId, product.copy(id = assignedId))
                 } catch (e: Exception) {
                     android.util.Log.e("KasirVM", "Firestore save product error: ${e.message}")
                 }
@@ -385,7 +412,8 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
             productDao.deleteProduct(product)
             if (firestoreRepo.isUserSignedIn()) {
                 try {
-                    firestoreRepo.deleteProduct(_storeProfile.value.cloudSyncCode, product.id)
+                    val activeStoreId = firestoreRepo.getCurrentStoreId() ?: "store_${auth.currentUser?.uid}"
+                    firestoreRepo.deleteProduct(activeStoreId, product.id)
                 } catch (e: Exception) {
                     android.util.Log.e("KasirVM", "Firestore delete product error: ${e.message}")
                 }
@@ -444,31 +472,45 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
             _cart.value = emptyList()
             _activeReceipt.value = transaction
 
-            addNotification(
-                title = "Transaksi Baru Berhasil!",
-                message = "Pembayaran ${FormatUtils.formatRupiah(finalTotal)} via $paymentMethod ($summary)"
-            )
-
             // Auto-trigger print if printer is paired
             if (!_storeProfile.value.bluetoothPrinterAddress.isNullOrBlank()) {
                 printActiveReceipt()
             }
 
             // Sync to Firestore atomically (records transaction and decrements stock in cloud)
+            var cloudSyncSuccess = false
+            var cloudErrorMessage: String? = null
             if (firestoreRepo.isUserSignedIn()) {
                 try {
+                    val activeStoreId = firestoreRepo.getCurrentStoreId() ?: "store_${auth.currentUser?.uid}"
                     firestoreRepo.recordTransactionAndDeductStock(
-                        storeId = _storeProfile.value.cloudSyncCode,
+                        storeId = activeStoreId,
                         transaction = transaction,
                         cartItems = items
                     )
+                    cloudSyncSuccess = true
                 } catch (e: Exception) {
+                    cloudErrorMessage = e.localizedMessage
                     android.util.Log.e("KasirVM", "Firestore record transaction error: ${e.message}")
                 }
             }
 
-            // Sync to cloud relay immediately
-            pushCurrentDataToCloud()
+            if (cloudSyncSuccess) {
+                addNotification(
+                    title = "Transaksi Baru (Tersimpan di Cloud)",
+                    message = "Pembayaran ${FormatUtils.formatRupiah(finalTotal)} via $paymentMethod berhasil dicatat ke Cloud Firestore."
+                )
+            } else if (cloudErrorMessage != null) {
+                addNotification(
+                    title = "Tersimpan Lokal (Gagal Sinkron Cloud)",
+                    message = "Pembayaran ${FormatUtils.formatRupiah(finalTotal)} via $paymentMethod tersimpan di HP. Cloud error: $cloudErrorMessage"
+                )
+            } else {
+                addNotification(
+                    title = "Transaksi Baru (Mode Offline)",
+                    message = "Pembayaran ${FormatUtils.formatRupiah(finalTotal)} via $paymentMethod tersimpan di penyimpanan lokal."
+                )
+            }
         }
     }
 
@@ -618,147 +660,18 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Multi-Device Modes: Local Wi-Fi and Cloud Internet Sync
+    // Multi-Device Modes: MODE_KASIR vs MODE_PEMANTAU
     fun setDeviceMode(mode: DeviceMode) {
         _deviceMode.value = mode
-        if (mode == DeviceMode.KASIR_HOST) {
-            stopMonitorClient()
-            setupMultiDeviceHost()
-            startCloudHostSync()
-        } else {
-            multiDeviceServer.stopServer()
-            _isHostRunning.value = false
-            cloudHostJob?.cancel()
-            startMonitorClient()
-        }
+        prefs.edit().putString("device_mode", mode.name).apply()
     }
 
     fun setSyncMethod(method: SyncConnectionMethod) {
         _syncMethod.value = method
-        if (_deviceMode.value == DeviceMode.MONITOR_CLIENT) {
-            startMonitorClient()
-        }
     }
 
     private fun setupMultiDeviceHost() {
-        val ip = multiDeviceServer.getLocalIpAddress()
-        _hostIpAddress.value = ip
-
-        multiDeviceServer.onStatusRequested = {
-            val now = System.currentTimeMillis()
-            val startOfDay = FormatUtils.getStartOfDay(now)
-            val todayTrx = allTransactions.value.filter { it.timestamp >= startOfDay }
-            Pair(_storeProfile.value, todayTrx)
-        }
-
-        val success = multiDeviceServer.startServer(8080)
-        _isHostRunning.value = success
-
-        viewModelScope.launch {
-            while (_isHostRunning.value) {
-                _connectedClientsCount.value = multiDeviceServer.connectedClients.size
-                delay(3000)
-            }
-        }
-    }
-
-    private fun startCloudHostSync() {
-        cloudHostJob?.cancel()
-        cloudHostJob = viewModelScope.launch {
-            while (true) {
-                pushCurrentDataToCloud()
-                delay(4000) // Periodic cloud heartbeat every 4 seconds
-            }
-        }
-    }
-
-    private fun pushCurrentDataToCloud() {
-        viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            val startOfDay = FormatUtils.getStartOfDay(now)
-            val todayTrx = allTransactions.value.filter { it.timestamp >= startOfDay }
-            CloudSyncManager.pushToCloud(_storeProfile.value, todayTrx)
-        }
-    }
-
-    fun restartHostServer() {
-        multiDeviceServer.stopServer()
-        setupMultiDeviceHost()
-        pushCurrentDataToCloud()
-    }
-
-    fun setRemoteTargetIp(ip: String) {
-        _remoteTargetIp.value = ip
-        prefs.edit().putString("remote_target_ip", ip).apply()
-        if (_deviceMode.value == DeviceMode.MONITOR_CLIENT && _syncMethod.value == SyncConnectionMethod.LOCAL_WIFI) {
-            startMonitorClient()
-        }
-    }
-
-    fun setRemoteTargetCloudCode(code: String) {
-        val clean = code.uppercase().trim()
-        _remoteTargetCloudCode.value = clean
-        prefs.edit().putString("remote_target_cloud_code", clean).apply()
-        if (_deviceMode.value == DeviceMode.MONITOR_CLIENT && _syncMethod.value == SyncConnectionMethod.CLOUD_INTERNET) {
-            startMonitorClient()
-        }
-    }
-
-    fun startMonitorClient() {
-        monitorJob?.cancel()
-        _isMonitorPolling.value = true
-        monitorJob = viewModelScope.launch {
-            var previousTrxCount = 0
-            while (_isMonitorPolling.value) {
-                if (_syncMethod.value == SyncConnectionMethod.CLOUD_INTERNET) {
-                    // Pull from Remote Cloud Relay via Mobile Data / Sinyal Internet
-                    val packet = CloudSyncManager.pullFromCloud(_remoteTargetCloudCode.value)
-                    _cloudSyncPacket.value = packet
-                    if (packet != null) {
-                        _remoteStatus.value = RemoteServerStatus(
-                            isOnline = true,
-                            storeName = packet.storeName,
-                            totalSales = packet.totalSales,
-                            totalProfit = packet.totalProfit,
-                            transactionCount = packet.transactionCount,
-                            connectedDevicesCount = 2,
-                            lastUpdate = packet.timestamp
-                        )
-                        _remoteTransactions.value = packet.latestTransactions
-
-                        if (previousTrxCount > 0 && packet.latestTransactions.size > previousTrxCount) {
-                            val latest = packet.latestTransactions.firstOrNull()
-                            if (latest != null) {
-                                addNotification(
-                                    title = "🔔 Penjualan Baru di Kasir (Cloud Sync)!",
-                                    message = "${FormatUtils.formatRupiah(latest.total)} - ${latest.itemsSummary}"
-                                )
-                            }
-                        }
-                        previousTrxCount = packet.latestTransactions.size
-                    }
-                } else {
-                    // Pull from Local Wi-Fi
-                    val status = multiDeviceClient.fetchStatus(_remoteTargetIp.value)
-                    _remoteStatus.value = status
-                    if (status != null && status.isOnline) {
-                        val trxs = multiDeviceClient.fetchTransactions(_remoteTargetIp.value)
-                        _remoteTransactions.value = trxs
-                        if (previousTrxCount > 0 && trxs.size > previousTrxCount) {
-                            val latest = trxs.firstOrNull()
-                            if (latest != null) {
-                                addNotification(
-                                    title = "🔔 Penjualan Baru di Kasir (Wi-Fi)!",
-                                    message = "${FormatUtils.formatRupiah(latest.total)} - ${latest.itemsSummary}"
-                                )
-                            }
-                        }
-                        previousTrxCount = trxs.size
-                    }
-                }
-                delay(3000) // Poll every 3 seconds
-            }
-        }
+        // Multi-device synchronization is now managed seamlessly via Firebase Cloud Firestore
     }
 
     fun stopMonitorClient() {
@@ -789,14 +702,34 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
     fun startFirestoreSync(user: FirebaseUser) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                _firestoreSyncStatus.value = "Menghubungkan ke Cloud Firestore..."
-                val storeCode = firestoreRepo.getOrCreateStore(_storeProfile.value)
+                _firestoreSyncState.value = FirestoreSyncState.Connecting
+                _firestoreSyncStatus.value = "Memverifikasi izin Firestore..."
 
-                // Safe migration of local Room database to Cloud Firestore
+                // 1. Verify actual database access and permissions before declaring online
+                val verifyResult = firestoreRepo.verifyDatabaseAccess()
+                if (verifyResult.isFailure) {
+                    val error = verifyResult.exceptionOrNull()
+                    val msg = error?.localizedMessage ?: "Gagal mengakses Firestore"
+                    if (msg.contains("PERMISSION_DENIED", ignoreCase = true) || msg.contains("insufficient permissions", ignoreCase = true)) {
+                        _firestoreSyncState.value = FirestoreSyncState.PermissionDenied(msg)
+                        _firestoreSyncStatus.value = "⚠️ Izin Ditolak (PERMISSION_DENIED)"
+                    } else {
+                        _firestoreSyncState.value = FirestoreSyncState.Error(msg)
+                        _firestoreSyncStatus.value = "Gagal Terhubung: $msg"
+                    }
+                    android.util.Log.e("KasirVM", "Firestore permission/access failure: $msg")
+                    return@launch
+                }
+
+                val storeId = verifyResult.getOrThrow()
+                // Keep store profile updated in cloud
+                firestoreRepo.getOrCreateStore(_storeProfile.value)
+
+                // 2. Safe migration of local Room database to Cloud Firestore
                 val localProducts = productDao.getAllProductsSync()
                 val localTrx = transactionDao.getAllTransactionsSync()
                 val (migratedProds, migratedTrx) = firestoreRepo.migrateDataFromLocalRoom(
-                    storeId = storeCode,
+                    storeId = storeId,
                     localProducts = localProducts,
                     localTransactions = localTrx
                 )
@@ -804,23 +737,24 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
                     android.util.Log.d("KasirVM", "Migrated to Firestore: $migratedProds produk, $migratedTrx transaksi")
                 }
 
+                _firestoreSyncState.value = FirestoreSyncState.Connected(user.email ?: "Akun Google", storeId)
                 _firestoreSyncStatus.value = "🟢 Terhubung ke Firestore (${user.email})"
 
-                // Real-time Products Sync from Firestore
+                // 3. Real-time Products Sync from Firestore
                 firestoreProductsJob?.cancel()
                 firestoreProductsJob = viewModelScope.launch(Dispatchers.IO) {
-                    firestoreRepo.observeProducts(storeCode).collect { cloudProducts ->
+                    firestoreRepo.observeProducts(storeId).collect { cloudProducts ->
                         if (cloudProducts.isNotEmpty()) {
                             productDao.insertProducts(cloudProducts)
                         }
                     }
                 }
 
-                // Real-time Transactions Sync from Firestore (instantly updates owner's dashboard)
+                // 4. Real-time Transactions Sync from Firestore (instantly updates owner's dashboard)
                 firestoreTrxJob?.cancel()
                 firestoreTrxJob = viewModelScope.launch(Dispatchers.IO) {
                     var lastNotifiedCount = 0
-                    firestoreRepo.observeTransactions(storeCode).collect { cloudTrx ->
+                    firestoreRepo.observeTransactions(storeId).collect { cloudTrx ->
                         if (cloudTrx.isNotEmpty()) {
                             transactionDao.insertTransactions(cloudTrx)
                             if (lastNotifiedCount > 0 && cloudTrx.size > lastNotifiedCount) {
@@ -837,7 +771,14 @@ class KasirViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Exception) {
-                _firestoreSyncStatus.value = "Koneksi Firestore: ${e.localizedMessage}"
+                val msg = e.localizedMessage ?: "Terjadi kesalahan"
+                if (msg.contains("PERMISSION_DENIED", ignoreCase = true)) {
+                    _firestoreSyncState.value = FirestoreSyncState.PermissionDenied(msg)
+                    _firestoreSyncStatus.value = "⚠️ Izin Ditolak (PERMISSION_DENIED)"
+                } else {
+                    _firestoreSyncState.value = FirestoreSyncState.Error(msg)
+                    _firestoreSyncStatus.value = "Koneksi Firestore: $msg"
+                }
                 android.util.Log.e("KasirVM", "Firestore sync start error: ${e.message}")
             }
         }

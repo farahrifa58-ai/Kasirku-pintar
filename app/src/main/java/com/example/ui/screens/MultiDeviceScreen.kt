@@ -1,9 +1,7 @@
 package com.example.ui.screens
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,69 +16,50 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.DeviceMode
+import com.example.ui.FirestoreSyncState
 import com.example.ui.KasirViewModel
-import com.example.ui.SyncConnectionMethod
 import com.example.ui.components.KasirTopHeader
-import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.NavyPrimary
-import com.example.ui.theme.NavyVariant
 import com.example.util.FormatUtils
-
-import androidx.credentials.CredentialManager
-import com.example.ui.auth.GoogleAuthHelper
-import kotlinx.coroutines.launch
 
 @Composable
 fun MultiDeviceScreen(
     viewModel: KasirViewModel,
     onOpenSettings: () -> Unit,
+    onRequireLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
-
     val storeProfile by viewModel.storeProfile.collectAsState()
     val deviceMode by viewModel.deviceMode.collectAsState()
-    val syncMethod by viewModel.syncMethod.collectAsState()
-
     val currentUser by viewModel.currentUser.collectAsState()
-    val firestoreSyncStatus by viewModel.firestoreSyncStatus.collectAsState()
+    val syncState by viewModel.firestoreSyncState.collectAsState()
+    val allTransactions by viewModel.allTransactions.collectAsState()
+    val allProducts by viewModel.allProducts.collectAsState()
 
-    val isHostRunning by viewModel.isHostRunning.collectAsState()
-    val hostIpAddress by viewModel.hostIpAddress.collectAsState()
-    val connectedClientsCount by viewModel.connectedClientsCount.collectAsState()
+    // Calculate today's live sales
+    val now = System.currentTimeMillis()
+    val startOfDay = remember(now) { FormatUtils.getStartOfDay(now) }
+    val todayTransactions = remember(allTransactions) {
+        allTransactions.filter { it.timestamp >= startOfDay }
+    }
+    val todaySales = remember(todayTransactions) { todayTransactions.sumOf { it.total } }
+    val todayTrxCount = remember(todayTransactions) { todayTransactions.size }
 
-    val remoteTargetIp by viewModel.remoteTargetIp.collectAsState()
-    val remoteTargetCloudCode by viewModel.remoteTargetCloudCode.collectAsState()
-    val remoteStatus by viewModel.remoteStatus.collectAsState()
-    val remoteTransactions by viewModel.remoteTransactions.collectAsState()
-
-    var inputCloudCode by remember(remoteTargetCloudCode) { mutableStateOf(remoteTargetCloudCode) }
-    var inputTargetIp by remember(remoteTargetIp) { mutableStateOf(remoteTargetIp) }
-    var cashierJoinInput by remember { mutableStateOf("") }
-    var isAuthLoading by remember { mutableStateOf(false) }
-    var isManualSyncing by remember { mutableStateOf(false) }
+    val isConnected = syncState is FirestoreSyncState.Connected
 
     Scaffold(
         topBar = {
             KasirTopHeader(
                 storeProfile = storeProfile,
                 title = "Koneksi Multi-Smartphone",
-                subtitle = "Pantau omset kasir jarak jauh via kuota data",
-                connectedDevicesCount = connectedClientsCount + 1,
-                isHostServerRunning = isHostRunning,
+                subtitle = "Sinkronisasi Real-Time Firestore",
+                isHostServerRunning = isConnected,
                 onSettingsClick = onOpenSettings
             )
         },
@@ -92,683 +71,368 @@ fun MultiDeviceScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ==================== FIREBASE CLOUD FIRESTORE INTEGRATION CARD ====================
+            // ==================== ACCURATE CONNECTION STATUS ====================
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (currentUser != null) NavyPrimary.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface
+                        containerColor = when (syncState) {
+                            is FirestoreSyncState.Connected -> MaterialTheme.colorScheme.surface
+                            is FirestoreSyncState.PermissionDenied -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                            is FirestoreSyncState.Error -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                            is FirestoreSyncState.Connecting -> MaterialTheme.colorScheme.surface
+                            is FirestoreSyncState.Offline -> MaterialTheme.colorScheme.surface
+                        }
                     ),
                     border = BorderStroke(
                         width = 1.dp,
-                        color = if (currentUser != null) AccentEmerald.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        color = when (syncState) {
+                            is FirestoreSyncState.Connected -> AccentEmerald.copy(alpha = 0.5f)
+                            is FirestoreSyncState.PermissionDenied -> MaterialTheme.colorScheme.error
+                            is FirestoreSyncState.Error -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                            is FirestoreSyncState.Connecting -> Color(0xFFFFB300)
+                            is FirestoreSyncState.Offline -> MaterialTheme.colorScheme.outlineVariant
+                        }
+                    )
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = if (currentUser != null) AccentEmerald else NavyPrimary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = "Firebase Cloud Firestore",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NavyPrimary
-                                    )
-                                    Text(
-                                        text = "Database Bersama Multi-HP Real-time",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (currentUser != null) AccentEmerald.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.15f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(if (currentUser != null) AccentEmerald else Color.Gray)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = if (currentUser != null) "Cloud Aktif" else "Offline",
-                                        color = if (currentUser != null) AccentEmerald else Color.Gray,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        if (currentUser == null) {
-                            Text(
-                                text = "Hubungkan ke Cloud Firestore agar data transaksi, stok, dan laporan tersinkronisasi otomatis antar 2-3 smartphone tanpa batas jarak.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Button(
-                                onClick = {
-                                    isAuthLoading = true
-                                    GoogleAuthHelper.signInWithGoogle(
-                                        context = context,
-                                        credentialManager = credentialManager,
-                                        onAuthSuccess = {
-                                            isAuthLoading = false
-                                            Toast.makeText(context, "Berhasil masuk ke Google & Cloud Firestore!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        onAuthError = { err ->
-                                            isAuthLoading = false
-                                            Toast.makeText(context, "Gagal login: $err", Toast.LENGTH_LONG).show()
-                                        },
-                                        scope = coroutineScope,
-                                        onAuthCancelled = {
-                                            isAuthLoading = false
-                                        }
-                                    )
-                                },
-                                enabled = !isAuthLoading,
-                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(44.dp)
-                                    .testTag("firestore_google_login_button")
-                            ) {
-                                if (isAuthLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        color = Color.White,
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Menghubungkan...")
-                                } else {
-                                    Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Masuk dengan Akun Google", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Akun Google Aktif:",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = currentUser?.email ?: "-",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    TextButton(
-                                        onClick = {
-                                            viewModel.signOutFromGoogle()
-                                            Toast.makeText(context, "Keluar dari Akun Google", Toast.LENGTH_SHORT).show()
-                                        }
-                                    ) {
-                                        Text("Keluar", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        isManualSyncing = true
-                                        viewModel.triggerManualFirestoreSync { success, msg ->
-                                            isManualSyncing = false
-                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                        }
-                                    },
-                                    enabled = !isManualSyncing,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(40.dp)
-                                        .testTag("firestore_manual_sync_button")
-                                ) {
-                                    if (isManualSyncing) {
-                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    } else {
-                                        Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Sinkronkan & Migrasi ke Cloud", fontSize = 12.sp)
-                                    }
-                                }
-                            }
-
-                            if (deviceMode == DeviceMode.KASIR_HOST) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Text(
-                                            text = "Hubungkan HP Kasir Lain ke Toko Ini:",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            text = "Gunakan Kode Toko '${storeProfile.cloudSyncCode}' di HP kasir 2 atau 3 agar terhubung ke katalog produk & stok yang sama.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            OutlinedTextField(
-                                                value = cashierJoinInput,
-                                                onValueChange = { cashierJoinInput = it.uppercase() },
-                                                label = { Text("Gabung Toko Kasir") },
-                                                placeholder = { Text("Contoh: KASIR-7890") },
-                                                singleLine = true,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            Button(
-                                                onClick = {
-                                                    if (cashierJoinInput.isNotBlank()) {
-                                                        viewModel.connectToStoreAsCashier(cashierJoinInput) { ok, msg ->
-                                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
-                                                },
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
-                                            ) {
-                                                Text("Gabung")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Mode Selector: HP Kasir vs HP Pemilik
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    TabRow(
-                        selectedTabIndex = if (deviceMode == DeviceMode.KASIR_HOST) 0 else 1,
-                        containerColor = Color.Transparent,
-                        contentColor = NavyPrimary
-                    ) {
-                        Tab(
-                            selected = deviceMode == DeviceMode.KASIR_HOST,
-                            onClick = { viewModel.setDeviceMode(DeviceMode.KASIR_HOST) },
-                            text = { Text("HP Kasir (Host)", fontWeight = FontWeight.Bold) },
-                            icon = { Icon(imageVector = Icons.Default.PointOfSale, contentDescription = null) }
-                        )
-                        Tab(
-                            selected = deviceMode == DeviceMode.MONITOR_CLIENT,
-                            onClick = { viewModel.setDeviceMode(DeviceMode.MONITOR_CLIENT) },
-                            text = { Text("HP Pemilik (Pantau)", fontWeight = FontWeight.Bold) },
-                            icon = { Icon(imageVector = Icons.Default.Visibility, contentDescription = null) }
-                        )
-                    }
-                }
-            }
-
-            // Connection Method Selector: Jarak Jauh (Cloud) vs Lokal (Wi-Fi)
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = syncMethod == SyncConnectionMethod.CLOUD_INTERNET,
-                            onClick = { viewModel.setSyncMethod(SyncConnectionMethod.CLOUD_INTERNET) },
-                            label = {
-                                Text("🌐 Jarak Jauh (Kuota / Sinyal)", fontWeight = FontWeight.Bold)
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NavyPrimary,
-                                selectedLabelColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = syncMethod == SyncConnectionMethod.LOCAL_WIFI,
-                            onClick = { viewModel.setSyncMethod(SyncConnectionMethod.LOCAL_WIFI) },
-                            label = {
-                                Text("📶 Wi-Fi / Hotspot", fontWeight = FontWeight.Bold)
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NavyPrimary,
-                                selectedLabelColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            if (deviceMode == DeviceMode.KASIR_HOST) {
-                // ==================== MODE HP KASIR (HOST) ====================
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = NavyVariant)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            // Top Row: Status Indicator & Compact Badge
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(9.dp)
-                                            .clip(CircleShape)
-                                            .background(AccentEmerald)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (syncMethod == SyncConnectionMethod.CLOUD_INTERNET)
-                                            "Cloud Sync Jarak Jauh"
-                                        else "Server Wi-Fi Lokal",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = Color.White.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "2-3 HP Siap",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            if (syncMethod == SyncConnectionMethod.CLOUD_INTERNET) {
-                                Text(
-                                    text = "Kode Toko Cloud (Untuk HP Pemilik):",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color.Black.copy(alpha = 0.35f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = storeProfile.cloudSyncCode,
-                                            color = Color(0xFFFFD54F),
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold
-                                        )
-
-                                        IconButton(
-                                            onClick = {
-                                                clipboardManager.setText(AnnotatedString(storeProfile.cloudSyncCode))
-                                                Toast.makeText(context, "Kode disalin!", Toast.LENGTH_SHORT).show()
-                                            },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ContentCopy,
-                                                contentDescription = "Salin",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Bisa dipantau via internet/kuota data tanpa batas jarak.",
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            } else {
-                                Text(
-                                    text = "Alamat IP Wi-Fi Kasir:",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color.Black.copy(alpha = 0.3f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = hostIpAddress,
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "Port: 8080",
-                                            color = Color.White.copy(alpha = 0.7f),
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.restartHostServer()
-                                    Toast.makeText(context, "Koneksi sinkronisasi diperbarui!", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                border = ButtonDefaults.outlinedButtonBorder.copy(
-                                    brush = androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = 0.6f))
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(vertical = 8.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Sync,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Segarkan Sinkronisasi", fontSize = 13.sp)
-                            }
-                        }
-                    }
-                }
-
-                // Panduan Pemilik
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Public, contentDescription = null, tint = NavyPrimary)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Pantau dari Jarak Jauh (Kuota Data)",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            InstructionStep(number = "1", text = "Pasang aplikasi KasirKu Pintar di smartphone pemilik / pengawas (bisa hingga 2-3 HP).")
-                            InstructionStep(number = "2", text = "Pilih tab 'HP Pemilik (Pantau)' lalu pilih mode 'Jarak Jauh (Kuota Data)'.")
-                            InstructionStep(number = "3", text = "Masukkan Kode Toko: ${storeProfile.cloudSyncCode} lalu klik 'Mulai Pantau Jarak Jauh'.")
-                            InstructionStep(number = "4", text = "Selesai! Omset, grafik, dan riwayat penjualan masuk langsung secara real-time dari mana saja.")
-                        }
-                    }
-                }
-            } else {
-                // ==================== MODE HP PEMILIK (PANTAU) ====================
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = if (syncMethod == SyncConnectionMethod.CLOUD_INTERNET)
-                                    "Pantau Jarak Jauh (Mengandalkan Kuota Data / Sinyal)"
-                                else "Pantau Jaringan Lokal (Wi-Fi)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = if (syncMethod == SyncConnectionMethod.CLOUD_INTERNET)
-                                    "Masukkan Kode Toko Cloud yang tertera di HP Kasir"
-                                else "Masukkan Alamat IP Kasir yang tertera di layar HP Kasir",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            if (syncMethod == SyncConnectionMethod.CLOUD_INTERNET) {
-                                OutlinedTextField(
-                                    value = inputCloudCode,
-                                    onValueChange = { inputCloudCode = it.uppercase() },
-                                    label = { Text("Kode Toko Cloud") },
-                                    placeholder = { Text("Contoh: KASIR-7890") },
-                                    leadingIcon = { Icon(imageVector = Icons.Default.VpnKey, contentDescription = null) },
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("target_cloud_code_input")
-                                )
-                            } else {
-                                OutlinedTextField(
-                                    value = inputTargetIp,
-                                    onValueChange = { inputTargetIp = it },
-                                    label = { Text("Alamat IP Kasir") },
-                                    placeholder = { Text("Contoh: 192.168.1.10") },
-                                    leadingIcon = { Icon(imageVector = Icons.Default.Lan, contentDescription = null) },
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("target_ip_input")
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Button(
-                                onClick = {
-                                    if (syncMethod == SyncConnectionMethod.CLOUD_INTERNET) {
-                                        viewModel.setRemoteTargetCloudCode(inputCloudCode)
-                                        viewModel.startMonitorClient()
-                                        Toast.makeText(context, "Menghubungkan ke toko $inputCloudCode via Cloud...", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        viewModel.setRemoteTargetIp(inputTargetIp)
-                                        viewModel.startMonitorClient()
-                                        Toast.makeText(context, "Menghubungkan ke $inputTargetIp via Wi-Fi...", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag("connect_monitor_button"),
-                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.Sync, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Mulai Pantau Jarak Jauh", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-
-                // Status & Data Real-Time
-                val status = remoteStatus
-                if (status != null && status.isOnline) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = AccentEmerald.copy(alpha = 0.12f))
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(10.dp)
                                         .clip(CircleShape)
-                                        .background(AccentEmerald)
+                                        .background(
+                                            when (syncState) {
+                                                is FirestoreSyncState.Connected -> AccentEmerald
+                                                is FirestoreSyncState.PermissionDenied -> Color.Red
+                                                is FirestoreSyncState.Error -> Color.Red
+                                                is FirestoreSyncState.Connecting -> Color(0xFFFFB300)
+                                                is FirestoreSyncState.Offline -> Color.Gray
+                                            }
+                                        )
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text(
-                                        text = "🟢 Terhubung Live Jarak Jauh: ${status.storeName}",
-                                        style = MaterialTheme.typography.titleMedium,
+                                        text = when (syncState) {
+                                            is FirestoreSyncState.Connected -> "Cloud Firestore: Terhubung"
+                                            is FirestoreSyncState.PermissionDenied -> "Akses Ditolak (PERMISSION_DENIED)"
+                                            is FirestoreSyncState.Error -> "Koneksi Cloud Terkendala"
+                                            is FirestoreSyncState.Connecting -> "Memverifikasi Izin Database..."
+                                            is FirestoreSyncState.Offline -> "Mode Offline (Belum Login)"
+                                        },
+                                        style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = AccentEmerald
+                                        color = when (syncState) {
+                                            is FirestoreSyncState.Connected -> AccentEmerald
+                                            is FirestoreSyncState.PermissionDenied -> MaterialTheme.colorScheme.error
+                                            is FirestoreSyncState.Error -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        }
                                     )
                                     Text(
-                                        text = "Sinkronisasi via kuota data internet otomatis aktif",
+                                        text = when (syncState) {
+                                            is FirestoreSyncState.Connected -> (syncState as FirestoreSyncState.Connected).email
+                                            is FirestoreSyncState.PermissionDenied -> "Aturan keamanan Firestore menolak akses untuk akun ini."
+                                            is FirestoreSyncState.Error -> (syncState as FirestoreSyncState.Error).message
+                                            is FirestoreSyncState.Connecting -> "Memeriksa status otentikasi & izin Firestore..."
+                                            is FirestoreSyncState.Offline -> "Masuk dengan Akun Google untuk sinkron multi-perangkat"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
-                        }
-                    }
 
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Text(text = "Omset Kasir (Live)", style = MaterialTheme.typography.labelMedium)
-                                    Text(
-                                        text = FormatUtils.formatRupiah(status.totalSales),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = AccentEmerald
-                                    )
-                                }
-                            }
-
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Text(text = "Transaksi Kasir", style = MaterialTheme.typography.labelMedium)
-                                    Text(
-                                        text = "${status.transactionCount} Trx",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NavyPrimary
-                                    )
+                            if (currentUser == null) {
+                                Button(
+                                    onClick = onRequireLogin,
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Text("Masuk", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     }
+                }
+            }
 
-                    item {
+            // ==================== PILIHAN PERAN PERANGKAT ====================
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "Aktivitas Penjualan Kasir Masuk (Live)",
+                            text = "Mode Perangkat Ini",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                    }
+                        Text(
+                            text = "Pilih peran HP ini. Semua perangkat yang login dengan akun Google yang sama otomatis tersinkron.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                    items(remoteTransactions) { trx ->
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Mode Kasir Tile
+                            val isKasirActive = deviceMode == DeviceMode.MODE_KASIR
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { viewModel.setDeviceMode(DeviceMode.MODE_KASIR) }
+                                    .testTag("mode_kasir_tile"),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isKasirActive) NavyPrimary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    width = if (isKasirActive) 2.dp else 1.dp,
+                                    color = if (isKasirActive) NavyPrimary else MaterialTheme.colorScheme.outlineVariant
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isKasirActive) NavyPrimary else Color.Gray.copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PointOfSale,
+                                                contentDescription = null,
+                                                tint = if (isKasirActive) Color.White else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        if (isKasirActive) {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = NavyPrimary
+                                            ) {
+                                                Text(
+                                                    text = "✓ Aktif",
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        text = "Mode Kasir",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isKasirActive) NavyPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    Text(
+                                        text = "Input transaksi penjualan & cetak struk",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 13.sp
+                                    )
+                                }
+                            }
+
+                            // Mode Pemantau Tile
+                            val isPemantauActive = deviceMode == DeviceMode.MODE_PEMANTAU
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { viewModel.setDeviceMode(DeviceMode.MODE_PEMANTAU) }
+                                    .testTag("mode_pemantau_tile"),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isPemantauActive) AccentEmerald.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    width = if (isPemantauActive) 2.dp else 1.dp,
+                                    color = if (isPemantauActive) AccentEmerald else MaterialTheme.colorScheme.outlineVariant
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isPemantauActive) AccentEmerald else Color.Gray.copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = null,
+                                                tint = if (isPemantauActive) Color.White else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        if (isPemantauActive) {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = AccentEmerald
+                                            ) {
+                                                Text(
+                                                    text = "✓ Aktif",
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        text = "Mode Pemantau",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isPemantauActive) AccentEmerald else MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    Text(
+                                        text = "Pantau omzet & transaksi dari jauh",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==================== MODE SPECIFIC CONTENT ====================
+            if (deviceMode == DeviceMode.MODE_PEMANTAU) {
+                // ==================== MONITORING VIEW ====================
+                item {
+                    Text(
+                        text = "Ringkasan Penjualan Hari Ini",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(text = "Omzet Kasir Hari Ini", style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    text = FormatUtils.formatRupiah(todaySales),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentEmerald
+                                )
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(text = "Total Transaksi", style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    text = "$todayTrxCount Transaksi",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavyPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text(
+                        text = "Aktivitas Penjualan Masuk (Real-Time)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (todayTransactions.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ReceiptLong,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.outlineVariant,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Belum ada transaksi kasir hari ini.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "Setiap penjualan di HP kasir akan langsung muncul di sini.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(todayTransactions) { trx ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -784,8 +448,16 @@ fun MultiDeviceScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = trx.itemsSummary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                    Text(text = FormatUtils.formatTimeOnly(trx.timestamp) + " • " + trx.paymentMethod, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        text = trx.itemsSummary,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${FormatUtils.formatTimeOnly(trx.timestamp)} • ${trx.paymentMethod} • ${trx.cashierName}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                                 Text(
                                     text = FormatUtils.formatRupiah(trx.total),
@@ -797,38 +469,64 @@ fun MultiDeviceScreen(
                         }
                     }
                 }
+            } else {
+                // ==================== CASHIER VIEW ====================
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.PointOfSale, contentDescription = null, tint = NavyPrimary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Terminal Kasir Aktif",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "HP ini digunakan untuk memproses transaksi. Setiap penjualan otomatis tersimpan ke Cloud Firestore dan memotong stok produk secara atomik.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = NavyPrimary.copy(alpha = 0.08f),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("Katalog Tersedia", style = MaterialTheme.typography.labelSmall, color = NavyPrimary)
+                                        Text("${allProducts.size} Produk", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = AccentEmerald.copy(alpha = 0.08f),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("Penjualan Hari Ini", style = MaterialTheme.typography.labelSmall, color = AccentEmerald)
+                                        Text("$todayTrxCount Transaksi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
-}
-
-@Composable
-fun InstructionStep(number: String, text: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .clip(CircleShape)
-                .background(NavyPrimary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = number,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = NavyPrimary
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }

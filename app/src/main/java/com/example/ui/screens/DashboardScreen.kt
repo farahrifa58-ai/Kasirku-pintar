@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.AppLanguage
 import com.example.data.model.StringsHelper
 import com.example.data.model.TransactionRecord
+import com.example.ui.FirestoreSyncState
 import com.example.ui.KasirViewModel
 import com.example.ui.TimePeriodFilter
 import com.example.ui.components.ChartPoint
@@ -43,8 +44,6 @@ fun DashboardScreen(
 ) {
     val storeProfile by viewModel.storeProfile.collectAsState()
     val allTransactions by viewModel.allTransactions.collectAsState()
-    val isHostRunning by viewModel.isHostRunning.collectAsState()
-    val connectedClientsCount by viewModel.connectedClientsCount.collectAsState()
     val language by viewModel.appLanguage.collectAsState()
 
     val todayTransactions = remember(allTransactions) {
@@ -65,13 +64,14 @@ fun DashboardScreen(
         viewModel.getHourlyTrendingPoints(todayTransactions)
     }
 
+    val syncState by viewModel.firestoreSyncState.collectAsState()
+
     Scaffold(
         topBar = {
             KasirTopHeader(
                 storeProfile = storeProfile,
                 isDashboard = true,
-                connectedDevicesCount = connectedClientsCount + 1,
-                isHostServerRunning = isHostRunning,
+                isHostServerRunning = syncState is FirestoreSyncState.Connected,
                 onSettingsClick = onOpenSettings
             )
         },

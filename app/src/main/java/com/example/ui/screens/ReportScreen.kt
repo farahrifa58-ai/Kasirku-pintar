@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.AppNotification
 import com.example.data.model.TransactionRecord
+import com.example.ui.FirestoreSyncState
 import com.example.ui.KasirViewModel
 import com.example.ui.TimePeriodFilter
 import com.example.ui.components.KasirTopHeader
@@ -40,8 +41,7 @@ fun ReportScreen(
     val allTransactions by viewModel.allTransactions.collectAsState()
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val notifications by viewModel.notifications.collectAsState()
-    val isHostRunning by viewModel.isHostRunning.collectAsState()
-    val connectedClientsCount by viewModel.connectedClientsCount.collectAsState()
+    val syncState by viewModel.firestoreSyncState.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedPaymentFilter by remember { mutableStateOf("Semua") }
@@ -82,8 +82,8 @@ fun ReportScreen(
                 storeProfile = storeProfile,
                 title = "Laporan Penjualan",
                 subtitle = "Pantau omset & riwayat transaksi real-time",
-                connectedDevicesCount = connectedClientsCount + 1,
-                isHostServerRunning = isHostRunning,
+                connectedDevicesCount = 1,
+                isHostServerRunning = syncState is FirestoreSyncState.Connected,
                 onSettingsClick = onOpenSettings
             )
         },

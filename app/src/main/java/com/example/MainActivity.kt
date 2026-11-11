@@ -15,6 +15,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.example.ui.KasirViewModel
@@ -66,9 +70,22 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            val currentUser by viewModel.currentUser.collectAsState()
+            var isOfflineSkipped by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
             KasirProTheme(darkTheme = isDarkTheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(viewModel = viewModel)
+                    if (currentUser == null && !isOfflineSkipped) {
+                        com.example.ui.auth.AuthScreen(
+                            onAuthSuccess = { /* Automatically switches to MainScreen when Firebase auth state updates */ },
+                            onSkipOffline = { isOfflineSkipped = true }
+                        )
+                    } else {
+                        MainScreen(
+                            viewModel = viewModel,
+                            onRequireLogin = { isOfflineSkipped = false }
+                        )
+                    }
                 }
             }
         }

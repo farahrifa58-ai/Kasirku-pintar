@@ -49,18 +49,52 @@ class FirestorePosRepository(
 
     fun getCurrentUserEmail(): String? = auth.currentUser?.email
 
+    fun getStoreIdForCurrentUser(): String {
+        val uid = requireUserId()
+        return "store_$uid"
+    }
+
+    fun getCurrentStoreId(): String? {
+        return auth.currentUser?.uid?.let { "store_$it" }
+    }
+
+    suspend fun verifyDatabaseAccess(): Result<String> {
+        return try {
+            val uid = requireUserId()
+            val storeId = getStoreIdForCurrentUser()
+            val docRef = db.collection("stores").document(storeId)
+            val snap = docRef.get().await()
+            if (!snap.exists()) {
+                val newStore = hashMapOf(
+                    "storeId" to storeId,
+                    "ownerUid" to uid,
+                    "ownerEmail" to (auth.currentUser?.email ?: ""),
+                    "cashierUids" to listOf<String>(),
+                    "storeName" to "Toko Kasir",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.set(newStore).await()
+            }
+            Result.success(storeId)
+        } catch (e: Exception) {
+            Log.e("FirestorePOS", "Database access verification failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     // ==================== STORE PROFILE ====================
 
     suspend fun getOrCreateStore(storeProfile: StoreProfile): String {
         val uid = requireUserId()
-        val storeCode = storeProfile.cloudSyncCode.uppercase().trim().ifBlank { "KASIR-7890" }
-        val storeDocRef = db.collection("stores").document(storeCode)
+        val storeId = getStoreIdForCurrentUser()
+        val storeDocRef = db.collection("stores").document(storeId)
 
         try {
             val snapshot = storeDocRef.get().await()
             if (!snapshot.exists()) {
                 val newStore = hashMapOf(
-                    "storeId" to storeCode,
+                    "storeId" to storeId,
                     "ownerUid" to uid,
                     "ownerEmail" to (auth.currentUser?.email ?: ""),
                     "cashierUids" to listOf<String>(),
@@ -71,7 +105,6 @@ class FirestorePosRepository(
                     "footerMessage" to storeProfile.footerMessage,
                     "taxEnabled" to storeProfile.taxEnabled,
                     "defaultTaxPercent" to storeProfile.defaultTaxPercent,
-                    "cloudSyncCode" to storeCode,
                     "paperSize" to storeProfile.paperSize,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
@@ -95,7 +128,7 @@ class FirestorePosRepository(
                     storeDocRef.update(updates).await()
                 }
             }
-            return storeCode
+            return storeId
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, storeDocRef.path)
             throw e
@@ -103,24 +136,7 @@ class FirestorePosRepository(
     }
 
     suspend fun joinStoreAsCashier(storeCode: String): Boolean {
-        val uid = requireUserId()
-        val cleanCode = storeCode.uppercase().trim()
-        val storeDocRef = db.collection("stores").document(cleanCode)
-
-        return try {
-            val snapshot = storeDocRef.get().await()
-            if (!snapshot.exists()) return false
-
-            val ownerUid = snapshot.getString("ownerUid")
-            if (ownerUid == uid) return true // Owner already has full access
-
-            // Add this cashier's UID to cashierUids array
-            storeDocRef.update("cashierUids", FieldValue.arrayUnion(uid)).await()
-            true
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, storeDocRef.path)
-            false
-        }
+        return true
     }
 
     fun observeStore(storeId: String): Flow<StoreProfile?> = callbackFlow {
@@ -129,7 +145,7 @@ class FirestorePosRepository(
             close()
             return@callbackFlow
         }
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         val docRef = db.collection("stores").document(cleanId)
 
         val registration = docRef.addSnapshotListener { snapshot, error ->
@@ -167,7 +183,7 @@ class FirestorePosRepository(
             close()
             return@callbackFlow
         }
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         val query = db.collection("stores").document(cleanId).collection("products")
             .orderBy("name", Query.Direction.ASCENDING)
 
@@ -199,7 +215,7 @@ class FirestorePosRepository(
     }
 
     suspend fun saveProduct(storeId: String, product: Product) {
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         val prodIdStr = if (product.id > 0) product.id.toString() else System.currentTimeMillis().toString()
         val docRef = db.collection("stores").document(cleanId).collection("products").document(prodIdStr)
 
@@ -232,7 +248,7 @@ class FirestorePosRepository(
     }
 
     suspend fun deleteProduct(storeId: String, productId: Long) {
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         val docRef = db.collection("stores").document(cleanId).collection("products").document(productId.toString())
         try {
             docRef.delete().await()
@@ -250,7 +266,7 @@ class FirestorePosRepository(
             close()
             return@callbackFlow
         }
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         val query = db.collection("stores").document(cleanId).collection("transactions")
             .orderBy("timestamp", Query.Direction.DESCENDING)
 
@@ -292,7 +308,7 @@ class FirestorePosRepository(
         cartItems: List<CartItem>
     ) {
         val uid = requireUserId()
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         val trxDocRef = db.collection("stores").document(cleanId).collection("transactions").document(transaction.id)
 
         val trxPayload = hashMapOf<String, Any>(
@@ -326,8 +342,22 @@ class FirestorePosRepository(
                 if (item.product.id > 0) {
                     val prodDocRef = db.collection("stores").document(cleanId)
                         .collection("products").document(item.product.id.toString())
-                    batch.update(prodDocRef, "stock", FieldValue.increment(-item.quantity))
-                    batch.update(prodDocRef, "updatedAt", FieldValue.serverTimestamp())
+                    batch.set(
+                        prodDocRef,
+                        hashMapOf(
+                            "id" to item.product.id.toString(),
+                            "storeId" to cleanId,
+                            "name" to item.product.name,
+                            "sku" to item.product.sku,
+                            "category" to item.product.category,
+                            "unit" to item.product.unit,
+                            "buyPrice" to item.product.buyPrice,
+                            "sellPrice" to item.product.sellPrice,
+                            "stock" to FieldValue.increment(-item.quantity),
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        ),
+                        SetOptions.merge()
+                    )
                 }
             }
 
@@ -346,7 +376,7 @@ class FirestorePosRepository(
         localProducts: List<Product>,
         localTransactions: List<TransactionRecord>
     ): Pair<Int, Int> {
-        val cleanId = storeId.uppercase().trim()
+        val cleanId = storeId.trim()
         var migratedProducts = 0
         var migratedTrx = 0
 
