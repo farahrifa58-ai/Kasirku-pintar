@@ -12,17 +12,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.core.content.ContextCompat
+import androidx.credentials.CredentialManager
 import com.example.ui.KasirViewModel
 import com.example.ui.MainScreen
+import com.example.ui.auth.AuthScreen
+import com.example.ui.auth.GoogleAuthHelper
+import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.KasirProTheme
 
 class MainActivity : ComponentActivity() {
@@ -41,9 +41,9 @@ class MainActivity : ComponentActivity() {
                 contract = ActivityResultContracts.RequestMultiplePermissions()
             ) { /* Handled gracefully in UI */ }
 
-            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
-            val credentialManager = androidx.compose.runtime.remember {
-                androidx.credentials.CredentialManager.create(this@MainActivity)
+            val coroutineScope = rememberCoroutineScope()
+            val credentialManager = remember {
+                CredentialManager.create(this@MainActivity)
             }
 
             LaunchedEffect(Unit) {
@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Attempt silent auto-sign-in for returning users
-                com.example.ui.auth.GoogleAuthHelper.attemptAutoSignIn(
+                GoogleAuthHelper.attemptAutoSignIn(
                     context = this@MainActivity,
                     credentialManager = credentialManager,
                     onAuthSuccess = { /* Automatically starts Firestore sync via AuthStateListener */ },
@@ -71,20 +71,34 @@ class MainActivity : ComponentActivity() {
             }
 
             val currentUser by viewModel.currentUser.collectAsState()
-            var isOfflineSkipped by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            var isOfflineSkipped by remember { mutableStateOf(false) }
+            var showSplash by remember { mutableStateOf(true) }
 
-            KasirProTheme(darkTheme = isDarkTheme) {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    if (currentUser == null && !isOfflineSkipped) {
-                        com.example.ui.auth.AuthScreen(
-                            onAuthSuccess = { /* Automatically switches to MainScreen when Firebase auth state updates */ },
-                            onSkipOffline = { isOfflineSkipped = true }
-                        )
-                    } else {
-                        MainScreen(
-                            viewModel = viewModel,
-                            onRequireLogin = { isOfflineSkipped = false }
-                        )
+            // KUNCI UKURAN FONT: Jangan ikuti perubahan ukuran font di pengaturan HP
+            val currentDensity = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    density = currentDensity.density,
+                    fontScale = 1.0f // Kunci fontScale tepat di 1.0f agar ukuran tampilan tetap konsisten
+                )
+            ) {
+                KasirProTheme(darkTheme = isDarkTheme) {
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        if (showSplash) {
+                            SplashScreen(
+                                onSplashFinished = { showSplash = false }
+                            )
+                        } else if (currentUser == null && !isOfflineSkipped) {
+                            AuthScreen(
+                                onAuthSuccess = { /* Automatically switches to MainScreen when Firebase auth state updates */ },
+                                onSkipOffline = { isOfflineSkipped = true }
+                            )
+                        } else {
+                            MainScreen(
+                                viewModel = viewModel,
+                                onRequireLogin = { isOfflineSkipped = false }
+                            )
+                        }
                     }
                 }
             }

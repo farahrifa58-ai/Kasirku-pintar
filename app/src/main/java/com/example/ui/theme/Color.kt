@@ -2,12 +2,18 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Navy Blue Palette for Top Header & Brand Identity
-val NavyPrimary = Color(0xFF0D253F)
-val NavyVariant = Color(0xFF1E3E62)
-val NavyLight = Color(0xFF2E5A88)
-val NavyHeaderBg = Color(0xFF0D253F)
-val NavyHeaderDarkBg = Color(0xFF071424)
+// Biru Muda Header Palette & KasirKu Pintar Brand Identity
+val BiruMudaPrimary = Color(0xFF1E88E5)        // Biru Muda Modern & Cerah
+val BiruMudaHeaderStart = Color(0xFF1976D2)   // Biru Muda Utama
+val BiruMudaHeaderEnd = Color(0xFF42A5F5)     // Biru Muda Sky Blue
+val BiruMudaVariant = Color(0xFF29B6F6)       // Aksen Biru Muda Segar
+
+// Legacy alias compatibility
+val NavyPrimary = Color(0xFF1E88E5)
+val NavyVariant = Color(0xFF1976D2)
+val NavyLight = Color(0xFF42A5F5)
+val NavyHeaderBg = Color(0xFF1976D2)
+val NavyHeaderDarkBg = Color(0xFF1565C0)
 
 // Accents
 val AccentEmerald = Color(0xFF00A86B)
@@ -15,13 +21,15 @@ val AccentAmber = Color(0xFFFF9F1C)
 val AccentCoral = Color(0xFFE63946)
 val AccentCyan = Color(0xFF00B4D8)
 
-// Light Theme Neutrals
-val LightBackground = Color(0xFFF4F6FA)
-val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceVariant = Color(0xFFE9EEF5)
-val LightOnSurface = Color(0xFF1A202C)
-val LightOnSurfaceMuted = Color(0xFF718096)
-val LightBorder = Color(0xFFE2E8F0)
+// Bawah Header Sampai Bawah: Biru Campur Putih Tipis (Lembut agar tulisan tetap sangat jelas)
+val LightBackground = Color(0xFFF1F6FD)               // Biru lembut tipis campur putih
+val LightBackgroundGradientStart = Color(0xFFEBF3FC)  // Biru muda tipis
+val LightBackgroundGradientEnd = Color(0xFFF9FBFE)    // Putih semburat biru muda
+val LightSurface = Color(0xFFFFFFFF)                  // Kartu putih bersih agar teks kontras
+val LightSurfaceVariant = Color(0xFFE5EEF9)
+val LightOnSurface = Color(0xFF1A2536)                // Slate gelap tegas agar mudah dibaca
+val LightOnSurfaceMuted = Color(0xFF53677E)
+val LightBorder = Color(0xFFD6E4F5)
 
 // Dark Theme Neutrals
 val DarkBackground = Color(0xFF0B132B)

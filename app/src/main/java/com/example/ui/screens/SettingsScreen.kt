@@ -194,7 +194,7 @@ fun SettingsScreen(
                                     )
                                 } else {
                                     Image(
-                                        painter = painterResource(id = R.drawable.ic_pos_icon_1794325054367),
+                                        painter = painterResource(id = R.drawable.app_logo),
                                         contentDescription = "Default Logo",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
@@ -899,7 +899,7 @@ fun AboutAppDialog(onDismiss: () -> Unit) {
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
-                        painter = painterResource(id = R.drawable.ic_pos_icon_1794325054367),
+                        painter = painterResource(id = R.drawable.app_logo),
                         contentDescription = "Logo",
                         modifier = Modifier
                             .fillMaxSize()

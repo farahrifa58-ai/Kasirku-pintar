@@ -29,8 +29,8 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.StoreProfile
 import com.example.ui.theme.AccentEmerald
-import com.example.ui.theme.NavyHeaderBg
-import com.example.ui.theme.NavyVariant
+import com.example.ui.theme.BiruMudaHeaderEnd
+import com.example.ui.theme.BiruMudaHeaderStart
 
 @Composable
 fun KasirTopHeader(
@@ -49,8 +49,8 @@ fun KasirTopHeader(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        NavyHeaderBg,
-                        NavyVariant
+                        BiruMudaHeaderStart,
+                        BiruMudaHeaderEnd
                     )
                 )
             )
@@ -85,7 +85,7 @@ fun KasirTopHeader(
                             )
                         } else {
                             Image(
-                                painter = painterResource(id = R.drawable.ic_pos_icon_1794325054367),
+                                painter = painterResource(id = R.drawable.app_logo),
                                 contentDescription = "Store Logo",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
