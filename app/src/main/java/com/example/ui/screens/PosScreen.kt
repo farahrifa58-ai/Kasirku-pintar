@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,12 +25,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -40,6 +48,9 @@ import com.example.ui.KasirViewModel
 import com.example.ui.components.KasirTopHeader
 import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.AccentEmerald
+import com.example.ui.theme.BiruMudaHeaderEnd
+import com.example.ui.theme.BiruMudaHeaderStart
+import com.example.ui.theme.BiruMudaPrimary
 import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.NavyVariant
 import com.example.util.FormatUtils
@@ -108,7 +119,7 @@ fun PosScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Badge(
                                     containerColor = NavyPrimary,
@@ -131,17 +142,30 @@ fun PosScreen(
                             )
                         }
 
+                        Spacer(modifier = Modifier.width(10.dp))
+
                         Button(
                             onClick = { showCheckoutModal = true },
                             colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
                             shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                             modifier = Modifier
-                                .height(48.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("checkout_button")
                         ) {
-                            Icon(imageVector = Icons.Default.ShoppingCartCheckout, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Bayar Sekarang", fontWeight = FontWeight.Bold)
+                            Icon(
+                                imageVector = Icons.Default.ShoppingCartCheckout,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Bayar Sekarang",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -467,12 +491,19 @@ fun WeightSelectionDialog(
     val calculatedSubtotal = product.sellPrice * selectedQty
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth(0.96f)
+        val currentDensity = LocalDensity.current
+        CompositionLocalProvider(
+            LocalDensity provides Density(
+                density = currentDensity.density,
+                fontScale = 1.0f
+            )
         ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth(0.96f)
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -639,12 +670,13 @@ fun WeightSelectionDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Tambahkan ke Keranjang", fontWeight = FontWeight.Bold)
                 }
+                }
             }
         }
     }
 }
 
-// Modal Pembayaran Rapi dengan PPN Manual & Otomatis
+// Modal Pembayaran Rapi, Ringkas, dan Modern dengan PPN Manual & Otomatis
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CheckoutBottomSheet(
@@ -683,371 +715,634 @@ fun CheckoutBottomSheet(
     }
     val change = (cashPaid - finalTotal).coerceAtLeast(0.0)
 
-    val paymentOptions = listOf("Tunai", "QRIS", "Transfer Bank", "Debit")
     val quickCashOptions = listOf(finalTotal, 20000.0, 50000.0, 100000.0, 200000.0, 500000.0).distinct().filter { it >= finalTotal }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = null
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
+        val currentDensity = LocalDensity.current
+        CompositionLocalProvider(
+            LocalDensity provides Density(
+                density = currentDensity.density,
+                fontScale = 1.0f
+            )
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .imePadding()
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Drag Handle Minimalis
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(NavyPrimary.copy(alpha = 0.1f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(imageVector = Icons.Default.ReceiptLong, contentDescription = null, tint = NavyPrimary)
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Pembayaran Kasir",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
                     )
                 }
-                IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Tutup")
-                }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ==================== RINGKASAN ITEM PESANAN ====================
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Rincian Item (${cart.size} Produk)",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    cart.forEach { item ->
-                        Row(
+                // Header Ringkas
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 3.dp),
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(BiruMudaPrimary.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = BiruMudaPrimary,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Pembayaran Kasir",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Tutup",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // ==================== RINGKASAN ITEM PESANAN ====================
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.product.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "${item.formattedQuantity()} × ${FormatUtils.formatRupiah(item.product.sellPrice)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Text(
+                                text = "Rincian Item (${cart.size} Produk)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Subtotal: ${FormatUtils.formatRupiah(total)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BiruMudaPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        cart.forEachIndexed { index, item ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
                                 )
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { onQuantityChange(item.product.id, -1.0) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(imageVector = Icons.Default.RemoveCircleOutline, contentDescription = "Kurang")
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.product.name,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${item.formattedQuantity()} × ${FormatUtils.formatRupiah(item.product.sellPrice)}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                                Text(
-                                    text = item.formattedQuantity(),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                )
-                                IconButton(
-                                    onClick = { onQuantityChange(item.product.id, 1.0) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(imageVector = Icons.Default.AddCircleOutline, contentDescription = "Tambah")
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { onQuantityChange(item.product.id, -1.0) },
+                                        modifier = Modifier.size(26.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.RemoveCircleOutline,
+                                            contentDescription = "Kurang",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        text = item.formattedQuantity(),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 3.dp)
+                                    )
+                                    IconButton(
+                                        onClick = { onQuantityChange(item.product.id, 1.0) },
+                                        modifier = Modifier.size(26.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AddCircleOutline,
+                                            contentDescription = "Tambah",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = BiruMudaPrimary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = FormatUtils.formatRupiah(item.subtotal),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = FormatUtils.formatRupiah(item.subtotal),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // ==================== PENGATURAN PPN (OTOMATIS & MANUAL) ====================
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = CardDefaults.outlinedCardBorder(),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.Percent, contentDescription = null, tint = NavyPrimary, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Pengaturan PPN (Pajak)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Mode PPN Chips
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        FilterChip(
-                            selected = taxMode == "Otomatis",
-                            onClick = { taxMode = "Otomatis" },
-                            label = { Text("PPN Otomatis") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = NavyPrimary, selectedLabelColor = Color.White),
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = taxMode == "Manual",
-                            onClick = { taxMode = "Manual" },
-                            label = { Text("PPN Manual") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = NavyPrimary, selectedLabelColor = Color.White),
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = taxMode == "Nonaktif",
-                            onClick = { taxMode = "Nonaktif" },
-                            label = { Text("Tanpa PPN") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = NavyPrimary, selectedLabelColor = Color.White),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    if (taxMode == "Otomatis") {
-                        Spacer(modifier = Modifier.height(8.dp))
+                // ==================== PENGATURAN PPN (OTOMATIS & MANUAL) ====================
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, BiruMudaPrimary.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "Tarif PPN:", style = MaterialTheme.typography.bodySmall)
-                            listOf(11.0, 10.0, 12.0).forEach { p ->
-                                SuggestionChip(
-                                    onClick = { taxPercent = p },
-                                    label = { Text("${p.toInt()}%", fontWeight = if (taxPercent == p) FontWeight.Bold else FontWeight.Normal) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Percent,
+                                    contentDescription = null,
+                                    tint = BiruMudaPrimary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "Pengaturan PPN (Pajak)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                            Spacer(modifier = Modifier.weight(1f))
-                            Text(
-                                text = "+${FormatUtils.formatRupiah(calculatedTax)}",
-                                fontWeight = FontWeight.Bold,
-                                color = NavyPrimary
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (calculatedTax > 0) BiruMudaPrimary.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    text = if (calculatedTax > 0) "+${FormatUtils.formatRupiah(calculatedTax)}" else "Rp 0",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (calculatedTax > 0) BiruMudaPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(7.dp))
+
+                        // Segmented Pill Toggle PPN (Anti-wrap & Ringkas)
+                        val taxModes = listOf(
+                            "Otomatis" to "Otomatis",
+                            "Manual" to "Manual",
+                            "Nonaktif" to "Tanpa PPN"
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(9.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(34.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(3.dp),
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                taxModes.forEach { (modeKey, modeLabel) ->
+                                    val isSelected = taxMode == modeKey
+                                    Surface(
+                                        onClick = { taxMode = modeKey },
+                                        shape = RoundedCornerShape(7.dp),
+                                        color = if (isSelected) BiruMudaPrimary else Color.Transparent,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = modeLabel,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (taxMode == "Otomatis") {
+                            Spacer(modifier = Modifier.height(7.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Tarif:",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                listOf(10.0, 11.0, 12.0).forEach { p ->
+                                    val isRateSelected = taxPercent == p
+                                    Surface(
+                                        onClick = { taxPercent = p },
+                                        shape = RoundedCornerShape(7.dp),
+                                        color = if (isRateSelected) BiruMudaPrimary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        border = if (isRateSelected) BorderStroke(1.dp, BiruMudaPrimary) else null,
+                                        modifier = Modifier.height(26.dp)
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.padding(horizontal = 10.dp)
+                                        ) {
+                                            Text(
+                                                text = "${p.toInt()}%",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isRateSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isRateSelected) BiruMudaPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (taxMode == "Manual") {
+                            Spacer(modifier = Modifier.height(7.dp))
+                            CompactCheckoutInput(
+                                value = manualTaxInput,
+                                onValueChange = { manualTaxInput = it.filter { ch -> ch.isDigit() } },
+                                label = "Nominal PPN (Rp)",
+                                placeholder = "Contoh: 5000",
+                                keyboardType = KeyboardType.Number,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
-                    } else if (taxMode == "Manual") {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = manualTaxInput,
-                            onValueChange = { manualTaxInput = it },
-                            label = { Text("Nominal PPN (Rp)") },
-                            placeholder = { Text("Contoh: 5000") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // ==================== DISKON & NAMA PELANGGAN ====================
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = discountInput,
-                    onValueChange = { discountInput = it },
-                    label = { Text("Potongan Diskon (Rp)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = customerName,
-                    onValueChange = { customerName = it },
-                    label = { Text("Nama Pelanggan") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // ==================== METODE PEMBAYARAN ====================
-            Text(text = "Metode Pembayaran", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                paymentOptions.forEach { method ->
-                    FilterChip(
-                        selected = paymentMethod == method,
-                        onClick = { paymentMethod = method },
-                        label = { Text(method) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = NavyPrimary,
-                            selectedLabelColor = Color.White
-                        ),
+                // ==================== DISKON & NAMA PELANGGAN ====================
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CompactCheckoutInput(
+                        value = discountInput,
+                        onValueChange = { discountInput = it.filter { ch -> ch.isDigit() } },
+                        label = "Diskon (Rp)",
+                        placeholder = "0",
+                        keyboardType = KeyboardType.Number,
+                        modifier = Modifier.weight(1f)
+                    )
+                    CompactCheckoutInput(
+                        value = customerName,
+                        onValueChange = { customerName = it },
+                        label = "Nama Pelanggan",
+                        placeholder = "Umum",
+                        keyboardType = KeyboardType.Text,
                         modifier = Modifier.weight(1f)
                     )
                 }
-            }
 
-            // Uang Tunai & Pecahan
-            if (paymentMethod == "Tunai") {
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = cashPaidInput,
-                    onValueChange = { cashPaidInput = it },
-                    label = { Text("Nominal Uang Diterima (Rp)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // ==================== METODE PEMBAYARAN ====================
+                Text(
+                    text = "Metode Pembayaran",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
-
-                Spacer(modifier = Modifier.height(6.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(quickCashOptions) { amount ->
-                        SuggestionChip(
-                            onClick = { cashPaidInput = amount.toInt().toString() },
-                            label = { Text(if (amount == finalTotal) "Uang Pas" else FormatUtils.formatRupiah(amount)) }
+                Spacer(modifier = Modifier.height(5.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val paymentRows = listOf(
+                        listOf(
+                            Triple("Tunai", Icons.Default.Payments, "Tunai"),
+                            Triple("QRIS", Icons.Default.QrCode2, "QRIS")
+                        ),
+                        listOf(
+                            Triple("Transfer Bank", Icons.Default.AccountBalance, "Transfer Bank"),
+                            Triple("Debit", Icons.Default.CreditCard, "Debit / EDC")
                         )
+                    )
+                    paymentRows.forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rowItems.forEach { (method, icon, label) ->
+                                val isSelected = paymentMethod == method
+                                Surface(
+                                    onClick = { paymentMethod = method },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) BiruMudaPrimary else MaterialTheme.colorScheme.surface,
+                                    border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(36.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = if (isSelected) Color.White else BiruMudaPrimary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = label,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+                // Uang Tunai & Pecahan Cepat
+                if (paymentMethod == "Tunai") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CompactCheckoutInput(
+                        value = cashPaidInput,
+                        onValueChange = { cashPaidInput = it.filter { ch -> ch.isDigit() } },
+                        label = "Uang Diterima (Rp)",
+                        placeholder = "Kosongkan jika uang pas (${FormatUtils.formatRupiah(finalTotal)})",
+                        keyboardType = KeyboardType.Number,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-            // ==================== RINGKASAN TOTAL PEMBAYARAN ====================
-            Card(
-                colors = CardDefaults.cardColors(containerColor = NavyVariant),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = "Subtotal", color = Color.White.copy(alpha = 0.8f))
-                        Text(text = FormatUtils.formatRupiah(total), color = Color.White)
-                    }
-                    if (discount > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = "Diskon", color = Color.White.copy(alpha = 0.8f))
-                            Text(text = "-${FormatUtils.formatRupiah(discount)}", color = Color(0xFFFF8A80))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(quickCashOptions) { amount ->
+                            val isExact = amount == finalTotal
+                            val chipSelected = cashPaidInput == amount.toInt().toString()
+                            Surface(
+                                onClick = { cashPaidInput = amount.toInt().toString() },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (chipSelected) BiruMudaPrimary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (chipSelected) BiruMudaPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                                ),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 10.dp)
+                                ) {
+                                    Text(
+                                        text = if (isExact) "Uang Pas" else FormatUtils.formatRupiah(amount),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isExact || chipSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isExact || chipSelected) BiruMudaPrimary else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
                         }
                     }
-                    if (calculatedTax > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                Spacer(modifier = Modifier.height(9.dp))
+
+                // ==================== RINGKASAN TOTAL PEMBAYARAN ====================
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(BiruMudaHeaderStart, BiruMudaHeaderEnd)
+                            )
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Baris rincian mini (Subtotal • Diskon • PPN)
+                        val summaryParts = buildList {
+                            add("Subtotal ${FormatUtils.formatRupiah(total)}")
+                            if (discount > 0) add("Diskon -${FormatUtils.formatRupiah(discount)}")
+                            if (calculatedTax > 0) add("PPN +${FormatUtils.formatRupiah(calculatedTax)}")
+                        }.joinToString("  •  ")
+
+                        Text(
+                            text = summaryParts,
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            color = Color.White.copy(alpha = 0.22f)
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "PPN (Pajak)", color = Color.White.copy(alpha = 0.8f))
-                            Text(text = "+${FormatUtils.formatRupiah(calculatedTax)}", color = Color(0xFFFFD54F))
-                        }
-                    }
-
-                    Divider(modifier = Modifier.padding(vertical = 10.dp), color = Color.White.copy(alpha = 0.2f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "TOTAL BAYAR",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = FormatUtils.formatRupiah(finalTotal),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-
-                    if (paymentMethod == "Tunai" && cashPaid >= finalTotal) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = "Kembalian", color = Color.White.copy(alpha = 0.85f))
                             Text(
-                                text = FormatUtils.formatRupiah(change),
+                                text = "TOTAL BAYAR",
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = AccentEmerald
+                                color = Color.White
+                            )
+                            Text(
+                                text = FormatUtils.formatRupiah(finalTotal),
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
                             )
                         }
+
+                        if (paymentMethod == "Tunai" && cashPaid >= finalTotal) {
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Kembalian",
+                                    fontSize = 11.sp,
+                                    color = Color.White.copy(alpha = 0.88f)
+                                )
+                                Text(
+                                    text = FormatUtils.formatRupiah(change),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFA7F3D0)
+                                )
+                            }
+                        }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Tombol Selesaikan Transaksi
+                Button(
+                    onClick = {
+                        onConfirmCheckout(paymentMethod, cashPaid, discount, calculatedTax, customerName)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("confirm_checkout_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = BiruMudaPrimary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Selesaikan Transaksi & Cetak",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Tombol Selesaikan Transaksi
-            Button(
-                onClick = {
-                    onConfirmCheckout(paymentMethod, cashPaid, discount, calculatedTax, customerName)
+@Composable
+private fun CompactCheckoutInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    keyboardType: KeyboardType,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
+        modifier = modifier.height(46.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = BiruMudaPrimary,
+                maxLines = 1,
+                softWrap = false
+            )
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                textStyle = TextStyle(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                cursorBrush = SolidColor(BiruMudaPrimary),
+                decorationBox = { innerTextField ->
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (value.isEmpty()) {
+                            Text(
+                                text = placeholder,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("confirm_checkout_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Selesaikan Transaksi & Cetak", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

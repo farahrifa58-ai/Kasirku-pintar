@@ -1,7 +1,9 @@
 package com.example
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -29,8 +31,44 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: KasirViewModel by viewModels()
 
+    // =========================================================================
+    // KUNCI UKURAN FONT DI LEVEL ANDROID OS CONTEXT & RESOURCES:
+    // Menjamin seluruh Activity, Dialog, Window, dan Views memiliki fontScale 1.0f
+    // sehingga saat pengaturan font HP diubah, font di aplikasi tidak ikut berubah.
+    // =========================================================================
+    override fun attachBaseContext(newBase: Context) {
+        val overrideConfig = Configuration(newBase.resources.configuration).apply {
+            fontScale = 1.0f
+        }
+        val configContext = newBase.createConfigurationContext(overrideConfig)
+        super.attachBaseContext(configContext)
+    }
+
+    override fun applyOverrideConfiguration(overrideConfiguration: Configuration?) {
+        overrideConfiguration?.fontScale = 1.0f
+        super.applyOverrideConfiguration(overrideConfiguration)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        newConfig.fontScale = 1.0f
+        super.onConfigurationChanged(newConfig)
+        val config = resources.configuration
+        config.fontScale = 1.0f
+        @Suppress("DEPRECATION")
+        resources.updateConfiguration(config, resources.displayMetrics)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Pastikan resources internal terkunci fontScale = 1.0f
+        val config = resources.configuration
+        if (config.fontScale != 1.0f) {
+            config.fontScale = 1.0f
+            @Suppress("DEPRECATION")
+            resources.updateConfiguration(config, resources.displayMetrics)
+        }
+
         enableEdgeToEdge()
 
         setContent {
@@ -74,7 +112,7 @@ class MainActivity : ComponentActivity() {
             var isOfflineSkipped by remember { mutableStateOf(false) }
             var showSplash by remember { mutableStateOf(true) }
 
-            // KUNCI UKURAN FONT: Jangan ikuti perubahan ukuran font di pengaturan HP
+            // KUNCI UKURAN FONT DI LEVEL COMPOSE ROOT
             val currentDensity = LocalDensity.current
             CompositionLocalProvider(
                 LocalDensity provides Density(
